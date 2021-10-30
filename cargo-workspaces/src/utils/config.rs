@@ -4,6 +4,8 @@ use glob::Pattern;
 use serde::{de, Deserialize};
 use serde_json::{from_value, Value};
 
+use std::fmt;
+
 #[derive(Deserialize, Default)]
 struct MetadataWorkspaces<T> {
     pub workspaces: Option<T>,
@@ -50,9 +52,24 @@ fn deserialize_members<'de, D>(deserializer: D) -> Result<Vec<Pattern>, D::Error
 where
     D: de::Deserializer<'de>,
 {
-    Vec::<String>::deserialize(deserializer)?
-        .into_iter()
-        .map(|s| Pattern::new(&s))
-        .collect::<Result<_, _>>()
-        .map_err(de::Error::custom)
+    struct MembersVisitor;
+
+    impl<'de> de::Visitor<'de> for MembersVisitor {
+        type Value = Vec<Pattern>;
+
+        fn expecting(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+            fmt.write_str("a list of glob patterns matching paths to workspace members")
+        }
+
+        fn visit_seq<A: de::SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+            let mut vec = Vec::with_capacity(seq.size_hint().unwrap_or(0));
+
+            while let Some(elem) = seq.next_element::<String>()? {
+                vec.push(Pattern::new(&elem).map_err(de::Error::custom)?);
+            }
+
+            Ok(vec)
+        }
+    }
+    deserializer.deserialize_seq(MembersVisitor)
 }
