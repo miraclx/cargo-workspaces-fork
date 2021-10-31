@@ -1,4 +1,4 @@
-use crate::utils::{get_pkgs, ListOpt, Listable, Result};
+use crate::utils::{get_pkg_groups, read_config, ListOpt, Listable, Result, WorkspaceConfig};
 use cargo_metadata::Metadata;
 use clap::Parser;
 
@@ -12,7 +12,10 @@ pub struct List {
 
 impl List {
     pub fn run(self, metadata: Metadata) -> Result {
-        let pkgs = get_pkgs(&metadata, self.list.all)?;
-        pkgs.list(self.list)
+        let config: WorkspaceConfig = read_config(&metadata.workspace_metadata)?;
+
+        let pkg_groups = get_pkg_groups(&metadata, &config, self.list.all)?;
+
+        pkg_groups.list(self.list)
     }
 }
