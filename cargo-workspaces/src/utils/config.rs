@@ -28,6 +28,7 @@ pub struct PackageConfig {
 
 #[derive(Deserialize, Debug, Clone, Ord, Eq, PartialOrd, PartialEq)]
 pub struct PackageGroup {
+    #[serde(deserialize_with = "validate_group_name")]
     pub name: String,
     #[serde(deserialize_with = "deserialize_members")]
     pub members: Vec<Pattern>,
@@ -46,6 +47,19 @@ pub struct WorkspaceConfig {
     pub group: Option<Vec<PackageGroup>>,
     pub allow_branch: Option<String>,
     pub no_individual_tags: Option<bool>,
+}
+
+fn validate_group_name<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: de::Deserializer<'de>,
+{
+    match String::deserialize(deserializer)? {
+        str if matches!(str.as_str(), "excluded" | "default") => Err(de::Error::custom(format!(
+            "invalid group name specification [{}]",
+            str
+        ))),
+        str => Ok(str),
+    }
 }
 
 fn deserialize_members<'de, D>(deserializer: D) -> Result<Vec<Pattern>, D::Error>
