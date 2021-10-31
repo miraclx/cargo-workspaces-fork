@@ -146,6 +146,7 @@ pub fn get_pkgs(metadata: &Metadata, all: bool) -> Result<Vec<Pkg>> {
 pub struct PkgGroups {
     pub default: Vec<Pkg>,
     pub excluded: Vec<Pkg>,
+    #[serde(flatten)]
     pub named_groups: HashMap<String, Vec<Pkg>>,
 }
 
