@@ -27,7 +27,7 @@ pub struct PackageConfig {
 }
 
 #[derive(Deserialize, Debug, Clone, Ord, Eq, PartialOrd, PartialEq)]
-pub struct PackageGroup {
+pub struct WorkspaceGroupSpec {
     #[serde(deserialize_with = "validate_group_name")]
     pub name: String,
     #[serde(deserialize_with = "deserialize_members")]
@@ -44,7 +44,7 @@ pub struct ExcludeSpec {
 #[derive(Deserialize, Default, Debug, Clone, Ord, Eq, PartialOrd, PartialEq)]
 pub struct WorkspaceConfig {
     pub exclude: Option<ExcludeSpec>,
-    pub group: Option<Vec<PackageGroup>>,
+    pub group: Option<Vec<WorkspaceGroupSpec>>,
     pub allow_branch: Option<String>,
     pub no_individual_tags: Option<bool>,
 }
@@ -55,7 +55,7 @@ where
 {
     match String::deserialize(deserializer)? {
         str if matches!(str.as_str(), "excluded" | "default") => Err(de::Error::custom(format!(
-            "invalid group name specification [{}]",
+            "invalid use of reserved group name: {}",
             str
         ))),
         str => Ok(str),

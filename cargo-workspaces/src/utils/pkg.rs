@@ -10,6 +10,7 @@ use serde::Serialize;
 use std::{
     cmp::max,
     collections::HashMap,
+    iter::repeat,
     path::{Path, PathBuf},
 };
 
@@ -142,49 +143,98 @@ pub fn get_pkgs(metadata: &Metadata, all: bool) -> Result<Vec<Pkg>> {
     Ok(pkgs)
 }
 
+macro_rules! ser_unit_variant {
+    ($variant:ident) => {
+        pub mod $variant {
+            pub fn ser<S>(s: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                s.serialize_str(stringify!($variant))
+            }
+        }
+    };
+}
+
+mod ser_grp {
+    ser_unit_variant!(default);
+    ser_unit_variant!(excluded);
+}
+
+#[derive(Eq, Hash, Clone, Debug, PartialEq, Serialize)]
+#[serde(untagged, rename_all = "lowercase")]
+pub enum GroupName {
+    #[serde(serialize_with = "ser_grp::default::ser")]
+    Default,
+    #[serde(serialize_with = "ser_grp::excluded::ser")]
+    Excluded,
+    Custom(String),
+}
+
 #[derive(Eq, Clone, Debug, PartialEq, Serialize)]
-pub struct PkgGroups {
-    pub default: Vec<Pkg>,
-    pub excluded: Vec<Pkg>,
+pub struct WorkspaceGroups {
     #[serde(flatten)]
-    pub named_groups: HashMap<String, Vec<Pkg>>,
+    pub named_groups: HashMap<GroupName, Vec<Pkg>>,
 }
 
-impl PkgGroups {
-    fn is_empty(&self) -> bool {
-        self.default.is_empty() && self.named_groups.is_empty()
+impl GroupName {
+    pub fn pretty_fmt(&self) -> Option<String> {
+        match self {
+            GroupName::Default => None,
+            GroupName::Excluded => Some(style(format!("[excluded]")).bold().yellow().to_string()),
+            GroupName::Custom(group_name) => Some(
+                style(format!("[{}]", group_name))
+                    .bold()
+                    .color256(37)
+                    .to_string(),
+            ),
+        }
+    }
+}
+
+impl WorkspaceGroups {
+    pub fn is_empty(&self) -> bool {
+        self.named_groups.is_empty()
     }
 
-    fn all_pkgs(&self) -> impl Iterator<Item = &Pkg> {
-        self.default
+    pub fn iter_groups(&self) -> impl Iterator<Item = (&GroupName, &Vec<Pkg>)> {
+        let default = self
+            .named_groups
+            .get_key_value(&GroupName::Default)
+            .into_iter();
+        let excluded = self
+            .named_groups
+            .get_key_value(&GroupName::Excluded)
+            .into_iter();
+
+        let rest = self
+            .named_groups
             .iter()
-            .chain(self.named_groups.values().flatten())
-            .chain(self.excluded.iter())
+            .filter(|(group, _)| !matches!(group, GroupName::Default | GroupName::Excluded));
+
+        default.chain(rest).chain(excluded)
+    }
+
+    pub fn iter_pkg(&self) -> impl Iterator<Item = (&GroupName, &Pkg)> {
+        self.iter_groups()
+            .map(|(group, pkgs)| repeat(group).zip(pkgs.iter()))
+            .flatten()
     }
 }
 
-macro_rules! iter {
-    (($($pair:tt)+)$(, $($rest:tt)+)?) => {
-        Some(($($pair)+)).into_iter()$(.chain(iter!($($rest)+)))?
-    };
-    (($($pair:tt)+) for ($($var:ident),+) in $expr:expr $(, $($rest:tt)+)?) => {
-        $expr.iter().map(|($($var),+)| ($($pair)+))$(.chain(iter!($($rest)+)))?
-    };
-}
-
-impl Listable for PkgGroups {
+impl Listable for WorkspaceGroups {
     fn list(&self, list: ListOpt) -> Result {
         if list.json {
             return self.json();
         }
 
-        if self.is_empty() && self.excluded.is_empty() {
+        if self.is_empty() {
             return Ok(());
         }
 
         let (first, second, third) =
-            self.all_pkgs()
-                .fold((0, 0, 0), |(first, second, third), x| {
+            self.iter_pkg()
+                .fold((0, 0, 0), |(first, second, third), (_, x)| {
                     (
                         max(first, x.name.len()),
                         max(second, x.version.to_string().len() + 1),
@@ -192,16 +242,12 @@ impl Listable for PkgGroups {
                     )
                 });
 
-        for (group_name, pkgs) in iter![
-            (None, &self.default),
-            (Some(style(format!("[{}]", k)).green().to_string()), v) for (k, v) in self.named_groups,
-            (Some(style("[excluded]").yellow().to_string()), &self.excluded)
-        ] {
+        for (group_name, pkgs) in self.iter_groups() {
             if pkgs.is_empty() {
                 continue;
             }
-            if let Some(group_name) = group_name {
-                TERM_OUT.write_line(&group_name)?;
+            if let Some(group_name) = group_name.pretty_fmt() {
+                TERM_OUT.write_line(&group_name.to_string())?;
             }
             for pkg in pkgs {
                 TERM_OUT.write_str(&pkg.name)?;
@@ -244,14 +290,13 @@ impl Listable for PkgGroups {
     }
 }
 
-pub fn get_pkg_groups(
+pub fn get_group_packages(
     metadata: &Metadata,
     workspace_config: &WorkspaceConfig,
     all: bool,
-) -> Result<PkgGroups> {
-    let mut pkg_groups = PkgGroups {
-        default: vec![],
-        excluded: vec![],
+) -> Result<WorkspaceGroups> {
+    let mut non_empty = false;
+    let mut pkg_groups = WorkspaceGroups {
         named_groups: HashMap::new(),
     };
 
@@ -296,10 +341,16 @@ pub fn get_pkg_groups(
                     .iter()
                     .any(|x| x.matches_path(pkg.path.as_path()))
                 {
-                    pkg_groups.excluded.push(pkg);
+                    pkg_groups
+                        .named_groups
+                        .entry(GroupName::Excluded)
+                        .or_default()
+                        .push(pkg);
                     continue;
                 }
             }
+
+            non_empty |= true;
 
             if let Some(ref package_groups) = workspace_config.group {
                 if let Some(group) = package_groups.iter().find(|group| {
@@ -310,14 +361,18 @@ pub fn get_pkg_groups(
                 }) {
                     pkg_groups
                         .named_groups
-                        .entry(group.name.clone())
+                        .entry(GroupName::Custom(group.name.clone()))
                         .or_default()
                         .push(pkg);
                     continue;
                 }
             }
 
-            pkg_groups.default.push(pkg);
+            pkg_groups
+                .named_groups
+                .entry(GroupName::Default)
+                .or_default()
+                .push(pkg);
         } else {
             Error::PackageNotFound {
                 id: id.repr.clone(),
@@ -326,12 +381,10 @@ pub fn get_pkg_groups(
         }
     }
 
-    if pkg_groups.is_empty() {
+    if !non_empty {
         return Err(Error::EmptyWorkspace);
     }
 
-    pkg_groups.default.sort();
-    pkg_groups.excluded.sort();
     pkg_groups
         .named_groups
         .values_mut()

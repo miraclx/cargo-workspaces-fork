@@ -1,18 +1,22 @@
 use crate::utils::{
-    cargo, change_versions, info, read_config, ChangeData, ChangeOpt, Error, GitOpt, Pkg, Result,
-    WorkspaceConfig, INTERNAL_ERR,
+    cargo, change_versions, get_group_packages, read_config, ChangeData, ChangeOpt, Error, GitOpt,
+    GroupName, Pkg, Result, WorkspaceConfig, INTERNAL_ERR,
 };
 
 use cargo_metadata::Metadata;
 use clap::{ArgEnum, ArgSettings, Parser};
 use dialoguer::{theme::ColorfulTheme, Confirm, Input, Select};
 use oclif::{
-    console::Style,
+    console::style,
     term::{TERM_ERR, TERM_OUT},
 };
 use semver::{Identifier, Version};
 
-use std::{collections::BTreeMap as Map, fs, process::exit};
+use std::{
+    collections::{BTreeMap as Map, HashMap},
+    fs,
+    process::exit,
+};
 
 #[derive(Debug, Clone, ArgEnum)]
 pub enum Bump {
@@ -91,43 +95,53 @@ impl VersionOpt {
             return Ok(Map::new());
         }
 
+        let workspace_groups = get_group_packages(metadata, &config, self.all)?;
+
         let (mut changed_p, mut unchanged_p) =
             self.change
-                .get_changed_pkgs(metadata, &change_data.since, self.all)?;
+                .get_changed_pkgs_1(metadata, &workspace_groups, &change_data.since)?;
 
         if changed_p.is_empty() {
             TERM_OUT.write_line("No changes detected, skipping versioning")?;
             return Ok(Map::new());
         }
 
-        let mut new_version = None;
-        let mut new_versions = vec![];
+        let mut bumped_pkgs = HashMap::new();
 
         while !changed_p.is_empty() {
-            self.get_new_versions(metadata, changed_p, &mut new_version, &mut new_versions)?;
+            self.get_new_versions(metadata, changed_p, &mut bumped_pkgs)?;
 
-            let pkgs = unchanged_p.into_iter().partition::<Vec<_>, _>(|p| {
-                let pkg = metadata
-                    .packages
-                    .iter()
-                    .find(|x| x.name == p.name)
-                    .expect(INTERNAL_ERR);
+            let pkgs = unchanged_p
+                .into_iter()
+                .partition::<Vec<_>, _>(|(group, p)| {
+                    let pkg = metadata
+                        .packages
+                        .iter()
+                        .find(|x| x.name == p.name)
+                        .expect(INTERNAL_ERR);
 
-                pkg.dependencies.iter().any(|x| {
-                    if let Some(version) = new_versions.iter().find(|y| x.name == y.0).map(|y| &y.1)
-                    {
-                        !x.req.matches(version)
-                    } else {
-                        false
-                    }
-                })
-            });
+                    pkg.dependencies.iter().any(|x| {
+                        if let Some((_, new_versions)) = bumped_pkgs.get(group) {
+                            if let Some(version) = new_versions
+                                .iter()
+                                .find(|(p, _, _)| x.name == p.name)
+                                .map(|y| &y.1)
+                            {
+                                !x.req.matches(version)
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    })
+                });
 
             changed_p = pkgs.0;
             unchanged_p = pkgs.1;
         }
 
-        let new_versions = self.confirm_versions(new_versions)?;
+        let (new_version, new_versions) = self.confirm_versions(bumped_pkgs)?;
 
         for p in &metadata.packages {
             if new_versions.get(&p.name).is_none()
@@ -171,49 +185,68 @@ impl VersionOpt {
         Ok(new_versions)
     }
 
-    fn get_new_versions(
+    fn get_new_versions<'a>(
         &self,
         metadata: &Metadata,
-        pkgs: Vec<Pkg>,
-        new_version: &mut Option<Version>,
-        new_versions: &mut Vec<(String, Version, Version)>,
+        pkgs: Vec<(&'a GroupName, &'a Pkg)>,
+        bumped_pkgs: &mut HashMap<
+            &'a GroupName,
+            (Option<Version>, Vec<(&'a Pkg, Version, Version)>),
+        >,
     ) -> Result {
-        let (independent_pkgs, same_pkgs) = pkgs
+        let pkgs = pkgs
             .into_iter()
-            .partition::<Vec<_>, _>(|p| p.config.independent.unwrap_or(false));
+            .filter(|(group, _)| !matches!(group, GroupName::Excluded));
 
-        if !same_pkgs.is_empty() {
-            let cur_version = same_pkgs
-                .iter()
-                .map(|p| {
-                    &metadata
-                        .packages
-                        .iter()
-                        .find(|x| x.id == p.id)
-                        .expect(INTERNAL_ERR)
-                        .version
-                })
-                .max()
-                .expect(INTERNAL_ERR);
+        let mut changed_pkg_groups = pkgs.fold(HashMap::new(), |mut groups, (group, pkg)| {
+            Vec::push(groups.entry(group).or_default(), pkg);
+            groups
+        });
 
-            if new_version.is_none() {
-                info!("current common version", cur_version);
+        let default_group = changed_pkg_groups.remove_entry(&GroupName::Default);
+        let remaining_groups = changed_pkg_groups
+            .into_iter()
+            .filter(|(group, _)| !matches!(group, GroupName::Default));
 
-                *new_version = Some(self.ask_version(cur_version, None)?);
+        for (group, pkgs) in default_group.into_iter().chain(remaining_groups) {
+            let (common_version, new_versions) = bumped_pkgs.entry(group).or_default();
+            let (independent_pkgs, same_pkgs) = pkgs
+                .into_iter()
+                .partition::<Vec<_>, _>(|p| p.config.independent.unwrap_or(false));
+
+            if !same_pkgs.is_empty() {
+                let mut group_version = same_pkgs
+                    .iter()
+                    .map(|p| {
+                        &metadata
+                            .packages
+                            .iter()
+                            .find(|x| x.id == p.id)
+                            .expect(INTERNAL_ERR)
+                            .version
+                    })
+                    .max()
+                    .expect(INTERNAL_ERR)
+                    .clone();
+                if common_version.is_none() {
+                    let custom_group_version = self.ask_version(&group_version, group, None)?;
+                    *common_version = Some(group_version);
+                    group_version = custom_group_version;
+                }
+
+                for p in same_pkgs {
+                    new_versions.push((
+                        p,
+                        group_version.clone(),
+                        common_version.as_ref().expect(INTERNAL_ERR).clone(),
+                    ));
+                }
             }
 
-            for p in &same_pkgs {
-                new_versions.push((
-                    p.name.to_string(),
-                    new_version.as_ref().expect(INTERNAL_ERR).clone(),
-                    cur_version.clone(),
-                ));
+            for p in independent_pkgs {
+                let new_version = self.ask_version(&p.version, group, Some(&p.name))?;
+                new_versions.push((p, new_version, p.version.clone()));
             }
-        }
-
-        for p in &independent_pkgs {
-            let new_version = self.ask_version(&p.version, Some(&p.name))?;
-            new_versions.push((p.name.to_string(), new_version, p.version.clone()));
         }
 
         Ok(())
@@ -221,21 +254,42 @@ impl VersionOpt {
 
     fn confirm_versions(
         &self,
-        versions: Vec<(String, Version, Version)>,
-    ) -> Result<Map<String, Version>> {
+        mut bumped_pkgs: HashMap<&GroupName, (Option<Version>, Vec<(&Pkg, Version, Version)>)>,
+    ) -> Result<(Option<Version>, Map<String, Version>)> {
         let mut new_versions = Map::new();
-        let style = Style::new().for_stderr();
+
+        let new_version = bumped_pkgs
+            .get(&GroupName::Default)
+            .and_then(|(version, _)| version.clone());
 
         TERM_ERR.write_line("\nChanges:")?;
 
-        for v in versions {
-            TERM_ERR.write_line(&format!(
-                " - {}: {} => {}",
-                style.clone().yellow().apply_to(&v.0),
-                v.2,
-                style.clone().cyan().apply_to(&v.1),
-            ))?;
-            new_versions.insert(v.0, v.1);
+        let default_group = bumped_pkgs.remove_entry(&GroupName::Default);
+        let remaining_groups = bumped_pkgs
+            .into_iter()
+            .filter(|(group, _)| !matches!(group, GroupName::Default));
+
+        for (group, (grp_common_version, versions)) in
+            default_group.into_iter().chain(remaining_groups)
+        {
+            if let Some(group_name) = group.pretty_fmt() {
+                TERM_ERR.write_str(&format!(" {}", group_name))?;
+            }
+            if let Some(version) = grp_common_version {
+                TERM_ERR.write_line(&format!(
+                    " (current common version: {})",
+                    style(version.to_string()).yellow().for_stderr()
+                ))?;
+            }
+            for (p, new_version, cur_version) in versions {
+                TERM_ERR.write_line(&format!(
+                    " - {}: {} => {}",
+                    style(&p.name).yellow().for_stderr(),
+                    cur_version,
+                    style(&new_version).yellow().for_stderr()
+                ))?;
+                new_versions.insert(p.name.clone(), new_version);
+            }
         }
 
         TERM_ERR.write_line("")?;
@@ -251,19 +305,29 @@ impl VersionOpt {
             exit(0);
         }
 
-        Ok(new_versions)
+        Ok((new_version, new_versions))
     }
 
-    fn ask_version(&self, cur_version: &Version, pkg_name: Option<&str>) -> Result<Version> {
+    fn ask_version(
+        &self,
+        cur_version: &Version,
+        group: &GroupName,
+        pkg_name: Option<&str>,
+    ) -> Result<Version> {
         let mut items = version_items(cur_version, &self.pre_id);
 
         items.push(("Custom Prerelease".to_string(), None));
         items.push(("Custom Version".to_string(), None));
 
-        let prompt = if let Some(name) = pkg_name {
-            format!("for {} ", name)
-        } else {
-            "".to_string()
+        let prompt = match (group, pkg_name) {
+            (GroupName::Custom(group_name), Some(name)) => {
+                format!("for {} in {}{} ", name, style("group:").cyan(), group_name)
+            }
+            (GroupName::Custom(group_name), None) => {
+                format!("for {}{} ", style("group:").cyan(), group_name)
+            }
+            (_, Some(name)) => format!("for {} ", name),
+            (_, None) => "".to_string(),
         };
 
         let theme = ColorfulTheme::default();

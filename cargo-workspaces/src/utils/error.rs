@@ -20,7 +20,7 @@ pub fn set_debug() {
 }
 
 macro_rules! _info {
-    ($desc:literal, $val:expr) => {{
+    ($desc:expr, $val:expr) => {{
         oclif::term::TERM_ERR.write_line(&format!(
             "{} {} {}",
             oclif::term::ERR_GREEN.apply_to("info"),
@@ -32,7 +32,7 @@ macro_rules! _info {
 }
 
 macro_rules! _debug {
-    ($desc:literal, $val:expr) => {{
+    ($desc:expr, $val:expr) => {{
         if $crate::utils::get_debug() {
             oclif::term::TERM_ERR.write_line(&format!(
                 "{} {} {}",
