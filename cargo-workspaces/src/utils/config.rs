@@ -58,6 +58,10 @@ where
             "invalid use of reserved group name: {}",
             str
         ))),
+        str if str.contains(":") => Err(de::Error::custom(format!(
+            "invalid character `:` in group name: {}",
+            str
+        ))),
         str => Ok(str),
     }
 }

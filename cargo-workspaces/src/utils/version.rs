@@ -321,10 +321,10 @@ impl VersionOpt {
 
         let prompt = match (group, pkg_name) {
             (GroupName::Custom(group_name), Some(name)) => {
-                format!("for {} in {}{} ", name, style("group:").cyan(), group_name)
+                format!("for {} in group:{} ", name, group_name)
             }
             (GroupName::Custom(group_name), None) => {
-                format!("for {}{} ", style("group:").cyan(), group_name)
+                format!("for group:{} ", group_name)
             }
             (_, Some(name)) => format!("for {} ", name),
             (_, None) => "".to_string(),
