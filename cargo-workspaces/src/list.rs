@@ -23,6 +23,7 @@ impl List {
             } else {
                 Some(&self.list.groups[..])
             },
+            true,
         )?;
 
         workspace_groups.list(self.list)

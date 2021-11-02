@@ -83,7 +83,12 @@ pub struct VersionOpt {
     pub yes: bool,
 
     /// Specify which package groups to version
-    #[clap(long, multiple_occurrences = true, number_of_values = 1)]
+    #[clap(
+        long,
+        multiple_occurrences = true,
+        use_delimiter = true,
+        number_of_values = 1
+    )]
     pub groups: Vec<GroupName>,
 
     /// Do not use a pager for previewing package groups in interactive mode
@@ -112,6 +117,7 @@ impl VersionOpt {
             } else {
                 Some(&self.groups[..])
             },
+            false,
         )?;
 
         let (mut changed_p, mut unchanged_p) =

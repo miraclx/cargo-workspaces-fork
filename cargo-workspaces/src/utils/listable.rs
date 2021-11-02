@@ -28,6 +28,11 @@ pub struct ListOpt {
     pub json: bool,
 
     /// Specify which package groups to list from
-    #[clap(long, multiple_occurrences = true, number_of_values = 1)]
+    #[clap(
+        long,
+        multiple_occurrences = true,
+        use_delimiter = true,
+        number_of_values = 1
+    )]
     pub groups: Vec<GroupName>,
 }

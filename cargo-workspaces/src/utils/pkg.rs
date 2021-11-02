@@ -315,6 +315,7 @@ pub fn get_group_packages(
     workspace_config: &WorkspaceConfig,
     all: bool,
     filter: Option<&[GroupName]>,
+    with_excluded: bool,
 ) -> Result<WorkspaceGroups> {
     let mut non_empty = false;
     let mut pkg_groups = WorkspaceGroups {
@@ -398,7 +399,7 @@ pub fn get_group_packages(
         }
     }
 
-    if !non_empty {
+    if !(with_excluded || non_empty) {
         return Err(Error::EmptyWorkspace);
     }
 
