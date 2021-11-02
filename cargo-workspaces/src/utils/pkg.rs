@@ -141,8 +141,12 @@ impl GroupName {
     }
 
     pub fn validate(s: &str) -> std::result::Result<(), String> {
-        if s.contains(":") {
-            return Err(format!("invalid character `:` in group name: {}", s));
+        for c in s.bytes() {
+            match c {
+                b':' => return Err(format!("invalid character `:` in group name: {}", s)),
+                b' ' => return Err(format!("unexpected space in group name: {}", s)),
+                _ => (),
+            }
         }
         Ok(())
     }
