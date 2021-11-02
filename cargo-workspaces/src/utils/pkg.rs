@@ -12,6 +12,7 @@ use std::{
     collections::HashMap,
     iter::repeat,
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
 #[derive(Serialize, Debug, Clone, Ord, Eq, PartialOrd, PartialEq)]
@@ -162,19 +163,13 @@ mod ser_grp {
 }
 
 #[derive(Eq, Hash, Clone, Debug, PartialEq, Serialize)]
-#[serde(untagged, rename_all = "lowercase")]
+#[serde(untagged)]
 pub enum GroupName {
     #[serde(serialize_with = "ser_grp::default::ser")]
     Default,
     #[serde(serialize_with = "ser_grp::excluded::ser")]
     Excluded,
     Custom(String),
-}
-
-#[derive(Eq, Clone, Debug, PartialEq, Serialize)]
-pub struct WorkspaceGroups {
-    #[serde(flatten)]
-    pub named_groups: HashMap<GroupName, Vec<Pkg>>,
 }
 
 impl GroupName {
@@ -190,6 +185,31 @@ impl GroupName {
             ),
         }
     }
+
+    pub fn validate(s: &str) -> std::result::Result<(), String> {
+        if s.contains(":") {
+            return Err(format!("invalid character `:` in group name: {}", s));
+        }
+        Ok(())
+    }
+}
+
+impl FromStr for GroupName {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Self::validate(s).map(|_| match s {
+            "default" => GroupName::Default,
+            "excluded" => GroupName::Excluded,
+            custom => GroupName::Custom(custom.to_string()),
+        })
+    }
+}
+
+#[derive(Eq, Clone, Debug, PartialEq, Serialize)]
+pub struct WorkspaceGroups {
+    #[serde(flatten)]
+    pub named_groups: HashMap<GroupName, Vec<Pkg>>,
 }
 
 impl WorkspaceGroups {

@@ -53,17 +53,15 @@ fn validate_group_name<'de, D>(deserializer: D) -> Result<String, D::Error>
 where
     D: de::Deserializer<'de>,
 {
-    match String::deserialize(deserializer)? {
-        str if matches!(str.as_str(), "excluded" | "default") => Err(de::Error::custom(format!(
+    let group_name = String::deserialize(deserializer)?;
+    utils::GroupName::validate(&group_name).map_err(de::Error::custom)?;
+    if matches!(group_name.as_str(), "excluded" | "default") {
+        return Err(de::Error::custom(format!(
             "invalid use of reserved group name: {}",
-            str
-        ))),
-        str if str.contains(":") => Err(de::Error::custom(format!(
-            "invalid character `:` in group name: {}",
-            str
-        ))),
-        str => Ok(str),
-    }
+            group_name
+        )));
+    };
+    Ok(group_name)
 }
 
 fn deserialize_members<'de, D>(deserializer: D) -> Result<Vec<Pattern>, D::Error>
