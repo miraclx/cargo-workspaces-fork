@@ -99,7 +99,7 @@ impl VersionOpt {
             return Ok(Map::new());
         }
 
-        let workspace_groups = get_group_packages(metadata, &config, self.all)?;
+        let workspace_groups = get_group_packages(metadata, &config, self.all, None)?;
 
         let (mut changed_p, mut unchanged_p) =
             self.change

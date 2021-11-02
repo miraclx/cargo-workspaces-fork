@@ -314,6 +314,7 @@ pub fn get_group_packages(
     metadata: &Metadata,
     workspace_config: &WorkspaceConfig,
     all: bool,
+    filter: Option<&[GroupName]>,
 ) -> Result<WorkspaceGroups> {
     let mut non_empty = false;
     let mut pkg_groups = WorkspaceGroups {
@@ -355,44 +356,40 @@ pub fn get_group_packages(
                 config: read_config(&pkg.metadata)?,
             };
 
-            if let Some(ref exclude_spec) = workspace_config.exclude {
-                if exclude_spec
-                    .members
-                    .iter()
-                    .any(|x| x.matches_path(pkg.path.as_path()))
-                {
-                    pkg_groups
-                        .named_groups
-                        .entry(GroupName::Excluded)
-                        .or_default()
-                        .push(pkg);
-                    continue;
-                }
-            }
-
-            non_empty |= true;
-
-            if let Some(ref package_groups) = workspace_config.group {
-                if let Some(group) = package_groups.iter().find(|group| {
-                    group
+            let group_name = loop {
+                if let Some(ref exclude_spec) = workspace_config.exclude {
+                    if exclude_spec
                         .members
                         .iter()
                         .any(|x| x.matches_path(pkg.path.as_path()))
-                }) {
-                    pkg_groups
-                        .named_groups
-                        .entry(GroupName::Custom(group.name.clone()))
-                        .or_default()
-                        .push(pkg);
-                    continue;
-                }
-            }
+                    {
+                        break GroupName::Excluded;
+                    }
+                };
 
-            pkg_groups
-                .named_groups
-                .entry(GroupName::Default)
-                .or_default()
-                .push(pkg);
+                if let Some(ref package_groups) = workspace_config.group {
+                    if let Some(group) = package_groups.iter().find(|group| {
+                        group
+                            .members
+                            .iter()
+                            .any(|x| x.matches_path(pkg.path.as_path()))
+                    }) {
+                        break GroupName::Custom(group.name.clone());
+                    }
+                }
+
+                break GroupName::Default;
+            };
+
+            if filter.map_or(true, |filter| filter.contains(&group_name)) {
+                non_empty |= !matches!(group_name, GroupName::Excluded);
+
+                pkg_groups
+                    .named_groups
+                    .entry(group_name)
+                    .or_default()
+                    .push(pkg);
+            }
         } else {
             Error::PackageNotFound {
                 id: id.repr.clone(),

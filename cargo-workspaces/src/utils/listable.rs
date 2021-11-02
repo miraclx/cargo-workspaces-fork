@@ -1,4 +1,4 @@
-use crate::utils::Result;
+use crate::utils::{GroupName, Result};
 
 use clap::Parser;
 use oclif::term::TERM_OUT;
@@ -26,4 +26,8 @@ pub struct ListOpt {
     /// Show information as a JSON array
     #[clap(long, conflicts_with = "long")]
     pub json: bool,
+
+    /// Specify which package groups to list from
+    #[clap(long)]
+    pub groups: Vec<GroupName>,
 }

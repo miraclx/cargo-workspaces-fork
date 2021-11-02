@@ -14,8 +14,17 @@ impl List {
     pub fn run(self, metadata: Metadata) -> Result {
         let config: WorkspaceConfig = read_config(&metadata.workspace_metadata)?;
 
-        let pkg_groups = get_group_packages(&metadata, &config, self.list.all)?;
+        let workspace_groups = get_group_packages(
+            &metadata,
+            &config,
+            self.list.all,
+            if self.list.groups.is_empty() {
+                None
+            } else {
+                Some(&self.list.groups[..])
+            },
+        )?;
 
-        pkg_groups.list(self.list)
+        workspace_groups.list(self.list)
     }
 }
