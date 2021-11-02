@@ -24,7 +24,7 @@ pub struct Changed {
     )]
     since: Option<String>,
 
-    /// Specify which package groups to check
+    /// Comma separated list of crate groups to check
     #[clap(
         long,
         multiple_occurrences = true,

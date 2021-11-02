@@ -82,7 +82,7 @@ pub struct VersionOpt {
     #[clap(short, long)]
     pub yes: bool,
 
-    /// Specify which package groups to version
+    /// Comma separated list of crate groups to version
     #[clap(
         long,
         multiple_occurrences = true,

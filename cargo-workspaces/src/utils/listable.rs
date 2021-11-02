@@ -27,7 +27,7 @@ pub struct ListOpt {
     #[clap(long, conflicts_with = "long")]
     pub json: bool,
 
-    /// Specify which package groups to list from
+    /// Comma separated list of crate groups to list from
     #[clap(
         long,
         multiple_occurrences = true,

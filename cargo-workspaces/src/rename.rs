@@ -25,7 +25,7 @@ pub struct Rename {
     )]
     pub to: String,
 
-    /// Specify which package groups to rename
+    /// Comma separated list of crate groups to rename
     #[clap(
         long,
         multiple_occurrences = true,
