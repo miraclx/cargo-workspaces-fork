@@ -45,3 +45,10 @@ indoc = "1.0.3"
 
 [workspace.metadata.workspaces]
 no_individual_tags = true
+
+[patch.crates-io.dialoguer]
+# TODO! remove once these two are merged on master
+# - https://github.com/mitsuhiko/dialoguer/pull/145
+# - https://github.com/mitsuhiko/dialoguer/pull/146
+git = "https://github.com/miraclx/dialoguer"
+branch = "fix-paging-clear+say-no-more"

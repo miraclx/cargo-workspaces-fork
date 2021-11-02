@@ -81,6 +81,10 @@ pub struct VersionOpt {
     /// Skip confirmation prompt
     #[clap(short, long)]
     pub yes: bool,
+
+    /// Do not use a pager for previewing package groups in interactive mode
+    #[clap(long)]
+    pub no_pager: bool,
 }
 
 impl VersionOpt {
@@ -229,7 +233,8 @@ impl VersionOpt {
                     .expect(INTERNAL_ERR)
                     .clone();
                 if common_version.is_none() {
-                    let custom_group_version = self.ask_version(&group_version, group, None)?;
+                    let custom_group_version =
+                        self.ask_version(&group_version, group, Some(&same_pkgs[..]), None)?;
                     *common_version = Some(group_version);
                     group_version = custom_group_version;
                 }
@@ -244,7 +249,7 @@ impl VersionOpt {
             }
 
             for p in independent_pkgs {
-                let new_version = self.ask_version(&p.version, group, Some(&p.name))?;
+                let new_version = self.ask_version(&p.version, group, None, Some(&p.name))?;
                 new_versions.push((p, new_version, p.version.clone()));
             }
         }
@@ -312,6 +317,7 @@ impl VersionOpt {
         &self,
         cur_version: &Version,
         group: &GroupName,
+        mut group_pkgs: Option<&[&Pkg]>,
         pkg_name: Option<&str>,
     ) -> Result<Version> {
         let mut items = version_items(cur_version, &self.pre_id);
@@ -332,17 +338,77 @@ impl VersionOpt {
 
         let theme = ColorfulTheme::default();
 
-        let selected = if let Some(bump) = &self.bump {
-            bump.selected()
-        } else {
-            Select::with_theme(&theme)
-                .with_prompt(&format!(
-                    "Select a new version {}(currently {})",
-                    prompt, cur_version
-                ))
-                .items(&items.iter().map(|x| &x.0).collect::<Vec<_>>())
-                .default(0)
-                .interact_on(&TERM_ERR)?
+        let selected = loop {
+            let mut selected = if let Some(bump) = &self.bump {
+                bump.selected()
+            } else {
+                let items = items.iter().map(|x| x.0.as_str());
+
+                let items: Vec<_> = if let Some(_) = group_pkgs {
+                    Some("List Packages Affected")
+                        .into_iter()
+                        .chain(items)
+                        .collect()
+                } else {
+                    items.collect()
+                };
+
+                Select::with_theme(&theme)
+                    .with_prompt(&format!(
+                        "Select a new version {}(currently {})",
+                        prompt, cur_version
+                    ))
+                    .items(&items)
+                    .default(0)
+                    .interact_on(&TERM_ERR)?
+            };
+
+            if let Some(group_pkgs) = if self.no_pager {
+                // take, so we only get the list option once
+                group_pkgs.take()
+            } else {
+                group_pkgs
+            } {
+                if selected == 0 {
+                    if self.no_pager {
+                        for (i, p) in group_pkgs.iter().enumerate() {
+                            TERM_ERR.write_line(&format!(
+                                " {:>s$} │ {}: {}",
+                                i + 1,
+                                style(&p.name).yellow().for_stderr(),
+                                p.version,
+                                s = (group_pkgs.len() as f32).log10() as usize + 1,
+                            ))?;
+                        }
+                    } else {
+                        let group_pkgs = group_pkgs
+                            .iter()
+                            .enumerate()
+                            .map(|(i, p)| {
+                                format!(
+                                    " {:>s$} │ {}: {}",
+                                    i + 1,
+                                    style(&p.name).yellow().for_stderr(),
+                                    p.version,
+                                    s = (group_pkgs.len() as f32).log10() as usize + 1,
+                                )
+                            })
+                            .collect::<Vec<_>>();
+                        Select::new()
+                            .with_prompt(format!("{} packages in this group", group_pkgs.len()))
+                            .items(&group_pkgs)
+                            .default(0)
+                            .clear(true)
+                            .report(false)
+                            .max_length(10)
+                            .interact_on_opt(&TERM_ERR)?;
+                    }
+                    continue;
+                }
+                selected -= 1;
+            }
+
+            break selected;
         };
 
         let new_version = if selected == 6 {
