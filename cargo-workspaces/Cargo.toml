@@ -47,8 +47,6 @@ indoc = "1.0.3"
 no_individual_tags = true
 
 [patch.crates-io.dialoguer]
-# TODO! remove once these two are merged on master
-# - https://github.com/mitsuhiko/dialoguer/pull/145
-# - https://github.com/mitsuhiko/dialoguer/pull/146
-git = "https://github.com/miraclx/dialoguer"
-branch = "fix-paging-clear+say-no-more"
+# TODO! blocked awaiting crate update
+git = "https://github.com/mitsuhiko/dialoguer"
+rev = "f9c067bfe711d5a52cb6bac0c128d046d3ade594"
