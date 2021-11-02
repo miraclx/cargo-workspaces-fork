@@ -17,7 +17,7 @@ impl List {
         let workspace_groups = get_group_packages(&metadata, &config, self.list.all)?;
 
         workspace_groups
-            .iter()
+            .into_iter()
             .filter(|(group_name, _)| {
                 self.list.groups.is_empty() || self.list.groups.contains(group_name)
             })

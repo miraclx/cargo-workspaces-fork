@@ -1,6 +1,6 @@
 use crate::utils::{
-    cargo, change_versions, get_group_packages, read_config, ChangeData, ChangeOpt, Error, GitOpt,
-    GroupName, Pkg, Result, WorkspaceConfig, INTERNAL_ERR,
+    cargo, change_versions, read_config, ChangeData, ChangeOpt, Error, GitOpt, GroupName, Pkg,
+    Result, WorkspaceConfig, INTERNAL_ERR,
 };
 
 use cargo_metadata::Metadata;
@@ -108,13 +108,12 @@ impl VersionOpt {
             return Ok(Map::new());
         }
 
-        let workspace_groups = get_group_packages(metadata, &config, self.all)?;
-
         let (mut changed_p, mut unchanged_p) = self.change.get_changed_pkgs(
             metadata,
-            &workspace_groups,
+            &config,
             &change_data.since,
             &self.groups[..],
+            self.all,
         )?;
 
         if changed_p.is_empty() {
@@ -201,14 +200,11 @@ impl VersionOpt {
         Ok(new_versions)
     }
 
-    fn get_new_versions<'a>(
+    fn get_new_versions(
         &self,
         metadata: &Metadata,
-        pkgs: Vec<(&'a GroupName, &'a Pkg)>,
-        bumped_pkgs: &mut HashMap<
-            &'a GroupName,
-            (Option<Version>, Vec<(&'a Pkg, Version, Version)>),
-        >,
+        pkgs: Vec<(GroupName, Pkg)>,
+        bumped_pkgs: &mut HashMap<GroupName, (Option<Version>, Vec<(Pkg, Version, Version)>)>,
     ) -> Result {
         let pkgs = pkgs
             .into_iter()
@@ -225,7 +221,14 @@ impl VersionOpt {
             .filter(|(group, _)| !matches!(group, GroupName::Default));
 
         for (group, pkgs) in default_group.into_iter().chain(remaining_groups) {
-            let (common_version, new_versions) = bumped_pkgs.entry(group).or_default();
+            let (common_version, new_versions) = loop {
+                match bumped_pkgs.get_mut(&group) {
+                    Some(pkg) => break pkg,
+                    None => {
+                        bumped_pkgs.insert(group.clone(), Default::default());
+                    }
+                }
+            };
             let (independent_pkgs, same_pkgs) = pkgs
                 .into_iter()
                 .partition::<Vec<_>, _>(|p| p.config.independent.unwrap_or(false));
@@ -246,7 +249,7 @@ impl VersionOpt {
                     .clone();
                 if common_version.is_none() {
                     let custom_group_version =
-                        self.ask_version(&group_version, group, Some(&same_pkgs[..]), None)?;
+                        self.ask_version(&group_version, &group, Some(&same_pkgs[..]), None)?;
                     *common_version = Some(group_version);
                     group_version = custom_group_version;
                 }
@@ -261,8 +264,9 @@ impl VersionOpt {
             }
 
             for p in independent_pkgs {
-                let new_version = self.ask_version(&p.version, group, None, Some(&p.name))?;
-                new_versions.push((p, new_version, p.version.clone()));
+                let old_version = p.version.clone();
+                let new_version = self.ask_version(&old_version, &group, None, Some(&p.name))?;
+                new_versions.push((p, new_version, old_version));
             }
         }
 
@@ -271,7 +275,7 @@ impl VersionOpt {
 
     fn confirm_versions(
         &self,
-        mut bumped_pkgs: HashMap<&GroupName, (Option<Version>, Vec<(&Pkg, Version, Version)>)>,
+        mut bumped_pkgs: HashMap<GroupName, (Option<Version>, Vec<(Pkg, Version, Version)>)>,
     ) -> Result<(Option<Version>, Map<String, Version>)> {
         let mut new_versions = Map::new();
 
@@ -329,7 +333,7 @@ impl VersionOpt {
         &self,
         cur_version: &Version,
         group: &GroupName,
-        mut group_pkgs: Option<&[&Pkg]>,
+        mut group_pkgs: Option<&[Pkg]>,
         pkg_name: Option<&str>,
     ) -> Result<Version> {
         let mut items = version_items(cur_version, &self.pre_id);

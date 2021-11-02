@@ -1,6 +1,5 @@
 use crate::utils::{
-    get_group_packages, read_config, ChangeData, ChangeOpt, GroupName, ListOpt, Listable, Result,
-    WorkspaceConfig,
+    read_config, ChangeData, ChangeOpt, GroupName, ListOpt, Listable, Result, WorkspaceConfig,
 };
 
 use cargo_metadata::Metadata;
@@ -50,11 +49,13 @@ impl Changed {
             since = change_data.since;
         }
 
-        let workspace_groups = get_group_packages(&metadata, &config, self.list.all)?;
-
-        let pkgs =
-            self.change
-                .get_changed_pkgs(&metadata, &workspace_groups, &since, &self.groups[..])?;
+        let pkgs = self.change.get_changed_pkgs(
+            &metadata,
+            &config,
+            &since,
+            &self.groups[..],
+            self.list.all,
+        )?;
 
         pkgs.0.list(self.list)
     }

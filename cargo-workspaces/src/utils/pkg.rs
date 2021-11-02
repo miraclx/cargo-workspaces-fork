@@ -29,7 +29,7 @@ pub struct Pkg {
     pub config: PackageConfig,
 }
 
-impl<'a> Listable for Vec<(&'a GroupName, &'a Pkg)> {
+impl Listable for Vec<(GroupName, Pkg)> {
     fn list(&self, list: ListOpt) -> Result {
         if list.json {
             return self.json();
@@ -171,28 +171,6 @@ pub struct WorkspaceGroups {
 }
 
 impl WorkspaceGroups {
-    pub fn iter(&self) -> impl Iterator<Item = (&GroupName, &Pkg)> {
-        let default = self
-            .named_groups
-            .get_key_value(&GroupName::Default)
-            .into_iter();
-        let excluded = self
-            .named_groups
-            .get_key_value(&GroupName::Excluded)
-            .into_iter();
-
-        let rest = self
-            .named_groups
-            .iter()
-            .filter(|(group, _)| !matches!(group, GroupName::Default | GroupName::Excluded));
-
-        default
-            .chain(rest)
-            .chain(excluded)
-            .map(|(group, pkgs)| repeat(group).zip(pkgs.iter()))
-            .flatten()
-    }
-
     pub fn into_iter(mut self) -> impl Iterator<Item = (GroupName, Pkg)> {
         let default = self
             .named_groups

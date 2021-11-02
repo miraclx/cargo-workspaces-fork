@@ -1,4 +1,6 @@
-use crate::utils::{git, info, Error, GroupName, Pkg, WorkspaceGroups, INTERNAL_ERR};
+use crate::utils::{
+    get_group_packages, git, info, Error, GroupName, Pkg, WorkspaceConfig, INTERNAL_ERR,
+};
 use cargo_metadata::Metadata;
 use clap::Parser;
 use glob::{Pattern, PatternError};
@@ -74,10 +76,13 @@ impl ChangeOpt {
     pub fn get_changed_pkgs<'a>(
         &self,
         metadata: &Metadata,
-        workspace_groups: &'a WorkspaceGroups,
+        config: &WorkspaceConfig,
         since: &Option<String>,
         filter: &[GroupName],
-    ) -> Result<(Vec<(&'a GroupName, &'a Pkg)>, Vec<(&'a GroupName, &'a Pkg)>), Error> {
+        private: bool,
+    ) -> Result<(Vec<(GroupName, Pkg)>, Vec<(GroupName, Pkg)>), Error> {
+        let workspace_groups = get_group_packages(metadata, &config, private)?;
+
         let pkgs = if let Some(since) = since {
             info!("looking for changes since", since);
 
@@ -98,7 +103,7 @@ impl ChangeOpt {
                 .map(|x| Pattern::new(&x))
                 .map_or::<Result<_, PatternError>, _>(Ok(None), |x| Ok(x.ok()))?;
 
-            workspace_groups.iter().partition(|(group_name, p)| {
+            workspace_groups.into_iter().partition(|(group_name, p)| {
                 if let Some(pattern) = &force {
                     if pattern.matches(&p.name) {
                         return true;
@@ -120,7 +125,7 @@ impl ChangeOpt {
                 })
             })
         } else {
-            (workspace_groups.iter().collect(), vec![])
+            (workspace_groups.into_iter().collect(), vec![])
         };
 
         Ok(pkgs)
