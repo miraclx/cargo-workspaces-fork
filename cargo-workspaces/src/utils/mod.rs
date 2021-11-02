@@ -18,7 +18,7 @@ pub(crate) use error::{debug, info};
 pub use error::{get_debug, set_debug, Error};
 pub use git::{git, GitOpt};
 pub use listable::{ListOpt, Listable};
-pub use pkg::{get_group_packages, get_pkgs, GroupName, Pkg, WorkspaceGroups};
+pub use pkg::{get_group_packages, GroupName, Pkg, WorkspaceGroups};
 pub use version::VersionOpt;
 
 pub type Result<T = ()> = std::result::Result<T, Error>;

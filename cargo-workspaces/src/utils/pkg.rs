@@ -98,59 +98,6 @@ impl<'a> Listable for Vec<(&'a GroupName, &'a Pkg)> {
     }
 }
 
-pub fn get_pkgs(metadata: &Metadata, all: bool) -> Result<Vec<Pkg>> {
-    let mut pkgs = vec![];
-
-    for id in &metadata.workspace_members {
-        if let Some(pkg) = metadata.packages.iter().find(|x| x.id == *id) {
-            let private =
-                pkg.publish.is_some() && pkg.publish.as_ref().expect(INTERNAL_ERR).is_empty();
-
-            if !all && private {
-                continue;
-            }
-
-            let loc = pkg.manifest_path.strip_prefix(&metadata.workspace_root);
-
-            if loc.is_err() {
-                return Err(Error::PackageNotInWorkspace {
-                    id: pkg.id.repr.clone(),
-                    ws: metadata.workspace_root.to_string(),
-                });
-            }
-
-            let loc = loc.expect(INTERNAL_ERR);
-            let loc = if loc.is_file() {
-                loc.parent().expect(INTERNAL_ERR)
-            } else {
-                loc
-            };
-
-            pkgs.push(Pkg {
-                id: pkg.id.clone(),
-                name: pkg.name.clone(),
-                version: pkg.version.clone(),
-                location: metadata.workspace_root.join(loc).into(),
-                path: loc.into(),
-                private,
-                config: read_config(&pkg.metadata)?,
-            });
-        } else {
-            Error::PackageNotFound {
-                id: id.repr.clone(),
-            }
-            .print()?;
-        }
-    }
-
-    if pkgs.is_empty() {
-        return Err(Error::EmptyWorkspace);
-    }
-
-    pkgs.sort();
-    Ok(pkgs)
-}
-
 macro_rules! ser_unit_variant {
     ($variant:ident) => {
         pub mod $variant {
@@ -224,7 +171,7 @@ impl WorkspaceGroups {
         self.named_groups.is_empty()
     }
 
-    pub fn iter_groups(&self) -> impl Iterator<Item = (&GroupName, &Vec<Pkg>)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&GroupName, &Pkg)> {
         let default = self
             .named_groups
             .get_key_value(&GroupName::Default)
@@ -239,12 +186,29 @@ impl WorkspaceGroups {
             .iter()
             .filter(|(group, _)| !matches!(group, GroupName::Default | GroupName::Excluded));
 
-        default.chain(rest).chain(excluded)
+        default
+            .chain(rest)
+            .chain(excluded)
+            .map(|(group, pkgs)| repeat(group).zip(pkgs.iter()))
+            .flatten()
     }
 
-    pub fn iter_pkg(&self) -> impl Iterator<Item = (&GroupName, &Pkg)> {
-        self.iter_groups()
-            .map(|(group, pkgs)| repeat(group).zip(pkgs.iter()))
+    pub fn into_iter(mut self) -> impl Iterator<Item = (GroupName, Pkg)> {
+        let default = self
+            .named_groups
+            .remove_entry(&GroupName::Default)
+            .into_iter();
+        let excluded = self
+            .named_groups
+            .remove_entry(&GroupName::Excluded)
+            .into_iter();
+
+        let rest = self.named_groups.into_iter();
+
+        default
+            .chain(rest)
+            .chain(excluded)
+            .map(|(group, pkgs)| repeat(group).zip(pkgs.into_iter()))
             .flatten()
     }
 }
@@ -259,7 +223,7 @@ impl Listable for WorkspaceGroups {
             return Ok(());
         }
 
-        self.iter_pkg().collect::<Vec<_>>().list(list)
+        self.iter().collect::<Vec<_>>().list(list)
     }
 }
 

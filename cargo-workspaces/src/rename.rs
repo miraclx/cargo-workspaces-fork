@@ -1,4 +1,7 @@
-use crate::utils::{get_pkgs, rename_packages, validate_value_containing_name, Error};
+use crate::utils::{
+    get_group_packages, read_config, rename_packages, validate_value_containing_name, Error,
+    GroupName, WorkspaceConfig,
+};
 use cargo_metadata::Metadata;
 use clap::{ArgSettings, Parser};
 use glob::{Pattern, PatternError};
@@ -21,11 +24,32 @@ pub struct Rename {
         setting(ArgSettings::ForbidEmptyValues)
     )]
     pub to: String,
+
+    /// Specify which package groups to rename
+    #[clap(
+        long,
+        multiple_occurrences = true,
+        use_delimiter = true,
+        number_of_values = 1
+    )]
+    pub groups: Vec<GroupName>,
 }
 
 impl Rename {
     pub fn run(self, metadata: Metadata) -> Result<(), Error> {
-        let pkgs = get_pkgs(&metadata, self.all)?;
+        let config: WorkspaceConfig = read_config(&metadata.workspace_metadata)?;
+
+        let workspace_groups = get_group_packages(
+            &metadata,
+            &config,
+            self.all,
+            if self.groups.is_empty() {
+                None
+            } else {
+                Some(&self.groups[..])
+            },
+            false,
+        )?;
 
         let ignore = self
             .ignore
@@ -35,7 +59,7 @@ impl Rename {
 
         let mut rename_map = Map::new();
 
-        for pkg in pkgs {
+        for (_, pkg) in workspace_groups.into_iter() {
             if let Some(pattern) = &ignore {
                 if pattern.matches(&pkg.name) {
                     continue;

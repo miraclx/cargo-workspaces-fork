@@ -97,7 +97,7 @@ impl ChangeOpt {
                 .map(|x| Pattern::new(&x))
                 .map_or::<Result<_, PatternError>, _>(Ok(None), |x| Ok(x.ok()))?;
 
-            workspace_groups.iter_pkg().into_iter().partition(|(_, p)| {
+            workspace_groups.iter().partition(|(_, p)| {
                 if let Some(pattern) = &force {
                     if pattern.matches(&p.name) {
                         return true;
@@ -115,7 +115,7 @@ impl ChangeOpt {
                 })
             })
         } else {
-            (workspace_groups.iter_pkg().collect(), vec![])
+            (workspace_groups.iter().collect(), vec![])
         };
 
         Ok(pkgs)
