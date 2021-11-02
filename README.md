@@ -78,10 +78,11 @@ USAGE:
     cargo workspaces list [FLAGS]
 
 FLAGS:
-    -a, --all     Show private crates that are normally hidden
-    -h, --help    Prints help information
-        --json    Show information as a JSON array
-    -l, --long    Show extended information
+    -a, --all                Show private crates that are normally hidden
+        --groups <GROUPS>    Comma separated list of crate groups to list from
+    -h, --help               Prints help information
+        --json               Show information as a JSON array
+    -l, --long               Show extended information
 ```
 
 Several aliases are available.
@@ -108,6 +109,7 @@ FLAGS:
 
 OPTIONS:
         --force <pattern>             Always include targeted crates matched by glob even when there are no changes
+        --groups <GROUPS>             Comma separated list of crate groups to check
         --ignore-changes <pattern>    Ignore changes in files matched by glob
         --since <since>               Use this git reference instead of the last tag
 ```
@@ -170,9 +172,11 @@ OPTIONS:
         --allow-branch <pattern>            Specify which branches to allow from [default: master]
         --force <pattern>                   Always include targeted crates matched by glob even when there are no changes
         --git-remote <remote>               Push git changes to the specified remote [default: origin]
+        --groups <GROUPS>                   Comma separated list of crate groups to version
         --ignore-changes <pattern>          Ignore changes in files matched by glob
         --individual-tag-prefix <prefix>    Customize prefix for individual tags (should contain `%n`) [default: %n@]
     -m, --message <message>                 Use a custom commit message when creating the version commit
+        --no-pager                          Do not use a pager for previewing package groups in interactive mode
         --pre-id <identifier>               Specify prerelease identifier
         --tag-prefix <prefix>               Customize tag prefix (can be empty) [default: v]
 ```
@@ -274,9 +278,11 @@ OPTIONS:
         --allow-branch <pattern>            Specify which branches to allow from [default: master]
         --force <pattern>                   Always include targeted crates matched by glob even when there are no changes
         --git-remote <remote>               Push git changes to the specified remote [default: origin]
+        --groups <GROUPS>                   Comma separated list of crate groups to version
         --ignore-changes <pattern>          Ignore changes in files matched by glob
         --individual-tag-prefix <prefix>    Customize prefix for individual tags (should contain `%n`) [default: %n@]
     -m, --message <message>                 Use a custom commit message when creating the version commit
+        --no-pager                          Do not use a pager for previewing package groups in interactive mode
         --pre-id <identifier>               Specify prerelease identifier
         --tag-prefix <prefix>               Customize tag prefix (can be empty) [default: v]
         --token <token>                     The token to use for publishing
