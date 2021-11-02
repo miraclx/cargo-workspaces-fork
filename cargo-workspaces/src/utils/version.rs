@@ -82,6 +82,10 @@ pub struct VersionOpt {
     #[clap(short, long)]
     pub yes: bool,
 
+    /// Specify which package groups to version
+    #[clap(long)]
+    pub groups: Vec<GroupName>,
+
     /// Do not use a pager for previewing package groups in interactive mode
     #[clap(long)]
     pub no_pager: bool,
@@ -99,7 +103,16 @@ impl VersionOpt {
             return Ok(Map::new());
         }
 
-        let workspace_groups = get_group_packages(metadata, &config, self.all, None)?;
+        let workspace_groups = get_group_packages(
+            metadata,
+            &config,
+            self.all,
+            if self.groups.is_empty() {
+                None
+            } else {
+                Some(&self.groups[..])
+            },
+        )?;
 
         let (mut changed_p, mut unchanged_p) =
             self.change
