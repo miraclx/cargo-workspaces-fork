@@ -1,4 +1,4 @@
-use crate::utils::{get_pkgs, git, info, Error, GroupName, Pkg, WorkspaceGroups, INTERNAL_ERR};
+use crate::utils::{git, info, Error, GroupName, Pkg, WorkspaceGroups, INTERNAL_ERR};
 use cargo_metadata::Metadata;
 use clap::Parser;
 use glob::{Pattern, PatternError};
@@ -71,7 +71,7 @@ impl ChangeData {
 }
 
 impl ChangeOpt {
-    pub fn get_changed_pkgs_1<'a>(
+    pub fn get_changed_pkgs<'a>(
         &self,
         metadata: &Metadata,
         workspace_groups: &'a WorkspaceGroups,
@@ -116,58 +116,6 @@ impl ChangeOpt {
             })
         } else {
             (workspace_groups.iter_pkg().collect(), vec![])
-        };
-
-        Ok(pkgs)
-    }
-
-    pub fn get_changed_pkgs(
-        &self,
-        metadata: &Metadata,
-        since: &Option<String>,
-        private: bool,
-    ) -> Result<(Vec<Pkg>, Vec<Pkg>), Error> {
-        let pkgs = get_pkgs(metadata, private)?;
-
-        let pkgs = if let Some(since) = since {
-            info!("looking for changes since", since);
-
-            let (changed_files, _) = git(
-                &metadata.workspace_root,
-                &["diff", "--name-only", "--relative", since],
-            )?;
-
-            let changed_files = changed_files.split('\n').map(Path::new).collect::<Vec<_>>();
-            let force = self
-                .force
-                .clone()
-                .map(|x| Pattern::new(&x))
-                .map_or::<Result<_, PatternError>, _>(Ok(None), |x| Ok(x.ok()))?;
-            let ignore_changes = self
-                .ignore_changes
-                .clone()
-                .map(|x| Pattern::new(&x))
-                .map_or::<Result<_, PatternError>, _>(Ok(None), |x| Ok(x.ok()))?;
-
-            pkgs.into_iter().partition(|p: &Pkg| {
-                if let Some(pattern) = &force {
-                    if pattern.matches(&p.name) {
-                        return true;
-                    }
-                }
-
-                changed_files.iter().any(|f| {
-                    if let Some(pattern) = &ignore_changes {
-                        if pattern.matches(f.to_str().expect(INTERNAL_ERR)) {
-                            return false;
-                        }
-                    }
-
-                    f.starts_with(&p.path)
-                })
-            })
-        } else {
-            (pkgs, vec![])
         };
 
         Ok(pkgs)

@@ -29,7 +29,7 @@ pub struct Pkg {
     pub config: PackageConfig,
 }
 
-impl Listable for Vec<Pkg> {
+impl<'a> Listable for Vec<(&'a GroupName, &'a Pkg)> {
     fn list(&self, list: ListOpt) -> Result {
         if list.json {
             return self.json();
@@ -39,19 +39,26 @@ impl Listable for Vec<Pkg> {
             return Ok(());
         }
 
-        let first = self.iter().map(|x| x.name.len()).max().expect(INTERNAL_ERR);
-        let second = self
-            .iter()
-            .map(|x| x.version.to_string().len() + 1)
-            .max()
-            .expect(INTERNAL_ERR);
-        let third = self
-            .iter()
-            .map(|x| max(1, x.path.as_os_str().len()))
-            .max()
-            .expect(INTERNAL_ERR);
+        let (first, second, third) =
+            self.iter()
+                .fold((0, 0, 0), |(first, second, third), (_, x)| {
+                    (
+                        max(first, x.name.len()),
+                        max(second, x.version.to_string().len() + 1),
+                        max(third, max(1, x.path.as_os_str().len())),
+                    )
+                });
 
-        for pkg in self {
+        let mut last_group_name = None;
+        for (group_name, pkg) in self {
+            match last_group_name.replace(group_name) {
+                Some(prev_name) if group_name == prev_name => {}
+                _ => {
+                    if let Some(group_name) = group_name.pretty_fmt() {
+                        TERM_OUT.write_line(&group_name.to_string())?;
+                    }
+                }
+            }
             TERM_OUT.write_str(&pkg.name)?;
             let mut width = first - pkg.name.len();
 
@@ -252,61 +259,7 @@ impl Listable for WorkspaceGroups {
             return Ok(());
         }
 
-        let (first, second, third) =
-            self.iter_pkg()
-                .fold((0, 0, 0), |(first, second, third), (_, x)| {
-                    (
-                        max(first, x.name.len()),
-                        max(second, x.version.to_string().len() + 1),
-                        max(third, max(1, x.path.as_os_str().len())),
-                    )
-                });
-
-        for (group_name, pkgs) in self.iter_groups() {
-            if pkgs.is_empty() {
-                continue;
-            }
-            if let Some(group_name) = group_name.pretty_fmt() {
-                TERM_OUT.write_line(&group_name.to_string())?;
-            }
-            for pkg in pkgs {
-                TERM_OUT.write_str(&pkg.name)?;
-                let mut width = first - pkg.name.len();
-
-                if list.long {
-                    let path = if pkg.path.as_os_str().is_empty() {
-                        Path::new(".")
-                    } else {
-                        pkg.path.as_path()
-                    };
-
-                    TERM_OUT.write_str(&format!(
-                        "{:f$} {}{:s$} {}",
-                        "",
-                        style(format!("v{}", pkg.version)).green(),
-                        "",
-                        style(path.display()).black().bright(),
-                        f = width,
-                        s = second - pkg.version.to_string().len() - 1,
-                    ))?;
-
-                    width = third - pkg.path.as_os_str().len();
-                }
-
-                if list.all && pkg.private {
-                    TERM_OUT.write_str(&format!(
-                        "{:w$} ({})",
-                        "",
-                        style("PRIVATE").red(),
-                        w = width
-                    ))?;
-                }
-
-                TERM_OUT.write_line("")?;
-            }
-        }
-
-        Ok(())
+        self.iter_pkg().collect::<Vec<_>>().list(list)
     }
 }
 

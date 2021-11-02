@@ -122,7 +122,7 @@ impl VersionOpt {
 
         let (mut changed_p, mut unchanged_p) =
             self.change
-                .get_changed_pkgs_1(metadata, &workspace_groups, &change_data.since)?;
+                .get_changed_pkgs(metadata, &workspace_groups, &change_data.since)?;
 
         if changed_p.is_empty() {
             TERM_OUT.write_line("No changes detected, skipping versioning")?;
