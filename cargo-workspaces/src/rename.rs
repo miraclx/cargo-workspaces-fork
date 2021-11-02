@@ -39,17 +39,7 @@ impl Rename {
     pub fn run(self, metadata: Metadata) -> Result<(), Error> {
         let config: WorkspaceConfig = read_config(&metadata.workspace_metadata)?;
 
-        let workspace_groups = get_group_packages(
-            &metadata,
-            &config,
-            self.all,
-            if self.groups.is_empty() {
-                None
-            } else {
-                Some(&self.groups[..])
-            },
-            false,
-        )?;
+        let workspace_groups = get_group_packages(&metadata, &config, self.all)?;
 
         let ignore = self
             .ignore
@@ -59,11 +49,14 @@ impl Rename {
 
         let mut rename_map = Map::new();
 
-        for (_, pkg) in workspace_groups.into_iter() {
+        for (group_name, pkg) in workspace_groups.into_iter() {
             if let Some(pattern) = &ignore {
                 if pattern.matches(&pkg.name) {
                     continue;
                 }
+            }
+            if !(self.groups.is_empty() || self.groups.contains(&group_name)) {
+                continue;
             }
 
             let new_name = self.to.replace("%n", &pkg.name);

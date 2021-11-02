@@ -108,21 +108,14 @@ impl VersionOpt {
             return Ok(Map::new());
         }
 
-        let workspace_groups = get_group_packages(
-            metadata,
-            &config,
-            self.all,
-            if self.groups.is_empty() {
-                None
-            } else {
-                Some(&self.groups[..])
-            },
-            false,
-        )?;
+        let workspace_groups = get_group_packages(metadata, &config, self.all)?;
 
-        let (mut changed_p, mut unchanged_p) =
-            self.change
-                .get_changed_pkgs(metadata, &workspace_groups, &change_data.since)?;
+        let (mut changed_p, mut unchanged_p) = self.change.get_changed_pkgs(
+            metadata,
+            &workspace_groups,
+            &change_data.since,
+            &self.groups[..],
+        )?;
 
         if changed_p.is_empty() {
             TERM_OUT.write_line("No changes detected, skipping versioning")?;

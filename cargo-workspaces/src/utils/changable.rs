@@ -76,6 +76,7 @@ impl ChangeOpt {
         metadata: &Metadata,
         workspace_groups: &'a WorkspaceGroups,
         since: &Option<String>,
+        filter: &[GroupName],
     ) -> Result<(Vec<(&'a GroupName, &'a Pkg)>, Vec<(&'a GroupName, &'a Pkg)>), Error> {
         let pkgs = if let Some(since) = since {
             info!("looking for changes since", since);
@@ -97,11 +98,15 @@ impl ChangeOpt {
                 .map(|x| Pattern::new(&x))
                 .map_or::<Result<_, PatternError>, _>(Ok(None), |x| Ok(x.ok()))?;
 
-            workspace_groups.iter().partition(|(_, p)| {
+            workspace_groups.iter().partition(|(group_name, p)| {
                 if let Some(pattern) = &force {
                     if pattern.matches(&p.name) {
                         return true;
                     }
+                }
+
+                if !(filter.is_empty() || filter.contains(&group_name)) {
+                    return false;
                 }
 
                 changed_files.iter().any(|f| {

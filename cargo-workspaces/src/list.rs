@@ -14,18 +14,14 @@ impl List {
     pub fn run(self, metadata: Metadata) -> Result {
         let config: WorkspaceConfig = read_config(&metadata.workspace_metadata)?;
 
-        let workspace_groups = get_group_packages(
-            &metadata,
-            &config,
-            self.list.all,
-            if self.list.groups.is_empty() {
-                None
-            } else {
-                Some(&self.list.groups[..])
-            },
-            true,
-        )?;
+        let workspace_groups = get_group_packages(&metadata, &config, self.list.all)?;
 
-        workspace_groups.list(self.list)
+        workspace_groups
+            .iter()
+            .filter(|(group_name, _)| {
+                self.list.groups.is_empty() || self.list.groups.contains(group_name)
+            })
+            .collect::<Vec<_>>()
+            .list(self.list)
     }
 }

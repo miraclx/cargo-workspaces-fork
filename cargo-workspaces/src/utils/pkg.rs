@@ -171,10 +171,6 @@ pub struct WorkspaceGroups {
 }
 
 impl WorkspaceGroups {
-    pub fn is_empty(&self) -> bool {
-        self.named_groups.is_empty()
-    }
-
     pub fn iter(&self) -> impl Iterator<Item = (&GroupName, &Pkg)> {
         let default = self
             .named_groups
@@ -217,26 +213,10 @@ impl WorkspaceGroups {
     }
 }
 
-impl Listable for WorkspaceGroups {
-    fn list(&self, list: ListOpt) -> Result {
-        if list.json {
-            return self.json();
-        }
-
-        if self.is_empty() {
-            return Ok(());
-        }
-
-        self.iter().collect::<Vec<_>>().list(list)
-    }
-}
-
 pub fn get_group_packages(
     metadata: &Metadata,
     workspace_config: &WorkspaceConfig,
     all: bool,
-    filter: Option<&[GroupName]>,
-    with_excluded: bool,
 ) -> Result<WorkspaceGroups> {
     let mut non_empty = false;
     let mut pkg_groups = WorkspaceGroups {
@@ -289,6 +269,8 @@ pub fn get_group_packages(
                     }
                 };
 
+                non_empty |= true;
+
                 if let Some(ref package_groups) = workspace_config.group {
                     if let Some(group) = package_groups.iter().find(|group| {
                         group
@@ -303,15 +285,11 @@ pub fn get_group_packages(
                 break GroupName::Default;
             };
 
-            if filter.map_or(true, |filter| filter.contains(&group_name)) {
-                non_empty |= !matches!(group_name, GroupName::Excluded);
-
-                pkg_groups
-                    .named_groups
-                    .entry(group_name)
-                    .or_default()
-                    .push(pkg);
-            }
+            pkg_groups
+                .named_groups
+                .entry(group_name)
+                .or_default()
+                .push(pkg);
         } else {
             Error::PackageNotFound {
                 id: id.repr.clone(),
@@ -320,7 +298,7 @@ pub fn get_group_packages(
         }
     }
 
-    if !(with_excluded || non_empty) {
+    if !non_empty {
         return Err(Error::EmptyWorkspace);
     }
 
