@@ -83,7 +83,7 @@ pub struct VersionOpt {
     pub yes: bool,
 
     /// Specify which package groups to version
-    #[clap(long)]
+    #[clap(long, multiple_occurrences = true, number_of_values = 1)]
     pub groups: Vec<GroupName>,
 
     /// Do not use a pager for previewing package groups in interactive mode
