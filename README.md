@@ -187,6 +187,52 @@ it's version be independent of the other crates, you can add the following to th
 independent = true
 ```
 
+If you want groups of crates to share a single version, independent of the rest of the workspace, see [Groups and Grouping](#groups-and-grouping).
+
+For more details, check [Config](#config) section below.
+
+#### Exclusion
+
+To have crates opt-out from being versioned, you can add the following to the workspace:
+
+```toml
+[workspace.metadata.workspaces]
+exclude = [
+    "./crates/*",
+    "path/to/some/specific/crate",
+]
+```
+
+For more details, check [Config](#config) section below.
+
+#### Groups and Grouping
+
+Use this to group certain crates together and have them share a single version that is independent from the rest of workspace.
+
+This also lets you choose to version and publish only a specific subset of crates in the workspace<sup>[1](#groups-and-grouping-1)</sup> instead of all at once.
+As well as visualizing [changes](#changed) by group or [listing](#list) crates on a per-group basis.
+
+<sup id="groups-and-grouping-1"><sup>1</sup> If a crate from outside a group depends on crates within the group that is versioned, their versions are bumped too.</sup>
+
+To create groups, add the following to the workspace:
+
+```toml
+[[workspace.metadata.workspaces.group]]
+name = "foobar"
+members = [
+    "./foo",
+    "./bar/*",
+]
+
+[[workspace.metadata.workspaces.group]]
+name = "another-group"
+members = [ "crates/*" ]
+```
+
+> Note that group membership is exclusive, a crate isn't allowed to be a part of multiple groups.
+> Also, the `default` group name is reserved for crates that don't belong to any group.
+> And, the `excluded` group name is reserved for crates that are marked to be [excluded](#exclusion) from being versioned
+
 For more details, check [Config](#config) section below.
 
 ### Publish
@@ -238,19 +284,30 @@ OPTIONS:
 
 ## Config
 
-There are two kind of options.
+There are two kinds of configuration options.
 
 * **Workspace**: Options that are specified in the workspace with `[workspace.metadata.workspaces]`
 * **Package**: Options that are specified in the package with `[package.metadata.workspaces]`
 
-If an option exists is allowed to exist in both places, it means that the value specified in the **Package**
-overrides the value specified in **Workspace**.
+### Package Configuration
 
-| Name | Type | Workspace | Package |
-| --- | --- | :---: | :---: |
-| `allow_branch` | `String` | Yes | No |
-| `independent` | `bool` | No | Yes |
-| `no_individual_tags` | `bool` | Yes | No |
+```toml
+[package.metadata.workspaces]
+independent = false  # This package should be versioned independently from the rest
+```
+
+### Workspace Configuration
+
+```toml
+[workspace.metadata.workspaces]
+allow_branch = "master"                 # Specify which branches to allow from [default: master]
+no_individual_tags = false              # Do not tag individual versions for crates
+exclude = [ "./foo", "./bar/*" ]        # List of crates to exclude from actions
+
+[[workspace.metadata.workspaces.group]]
+name = "utils"                          # Name for this group
+members = [ "./utils/a", "./utils/b" ]  # Member crates belonging to this group
+```
 
 <!-- omit in TOC -->
 ## Contributors
