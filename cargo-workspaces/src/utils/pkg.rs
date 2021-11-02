@@ -8,6 +8,7 @@ use semver::Version;
 use serde::Serialize;
 
 use std::{
+    borrow::Borrow,
     cmp::max,
     collections::HashMap,
     iter::repeat,
@@ -164,6 +165,16 @@ impl FromStr for GroupName {
     }
 }
 
+impl Borrow<str> for GroupName {
+    fn borrow(&self) -> &str {
+        match self {
+            GroupName::Default => "default",
+            GroupName::Excluded => "excluded",
+            GroupName::Custom(custom) => custom.as_str(),
+        }
+    }
+}
+
 #[derive(Eq, Clone, Debug, PartialEq, Serialize)]
 pub struct WorkspaceGroups {
     #[serde(flatten)]
@@ -237,30 +248,52 @@ pub fn get_group_packages(
             };
 
             let group_name = loop {
+                let mut matched_groups = vec![];
+
+                if let Some(ref package_groups) = workspace_config.group {
+                    for group in package_groups.iter() {
+                        if group
+                            .members
+                            .iter()
+                            .any(|x| x.matches_path(pkg.path.as_path()))
+                        {
+                            matched_groups.push(GroupName::Custom(group.name.clone()));
+                        }
+                    }
+                }
+
                 if let Some(ref exclude_spec) = workspace_config.exclude {
                     if exclude_spec
                         .members
                         .iter()
                         .any(|x| x.matches_path(pkg.path.as_path()))
                     {
-                        break GroupName::Excluded;
-                    }
-                };
-
-                non_empty |= true;
-
-                if let Some(ref package_groups) = workspace_config.group {
-                    if let Some(group) = package_groups.iter().find(|group| {
-                        group
-                            .members
-                            .iter()
-                            .any(|x| x.matches_path(pkg.path.as_path()))
-                    }) {
-                        break GroupName::Custom(group.name.clone());
+                        if matched_groups.is_empty() {
+                            break GroupName::Excluded;
+                        } else {
+                            return Err(Error::ExcludedPackageFoundInGroup {
+                                name: pkg.name,
+                                rel_path: pkg.path.display().to_string(),
+                                groups: matched_groups,
+                            });
+                        }
                     }
                 }
 
-                break GroupName::Default;
+                if matched_groups.len() > 1 {
+                    return Err(Error::PackageExistsInMultipleGroups {
+                        name: pkg.name,
+                        rel_path: pkg.path.display().to_string(),
+                        groups: matched_groups,
+                    });
+                }
+
+                non_empty |= true;
+                break if matched_groups.is_empty() {
+                    GroupName::Default
+                } else {
+                    matched_groups.remove(0)
+                };
             };
 
             pkg_groups

@@ -1,3 +1,5 @@
+use crate::utils::GroupName;
+
 use lazy_static::lazy_static;
 use oclif::{term::ERR_YELLOW, CliError};
 use thiserror::Error;
@@ -54,6 +56,18 @@ pub enum Error {
     PackageNotInWorkspace { id: String, ws: String },
     #[error("unable to find package {id}")]
     PackageNotFound { id: String },
+    #[error("the package {name} ({rel_path}) was matched in multiple groups: {}", .groups.join(", "))]
+    PackageExistsInMultipleGroups {
+        name: String,
+        rel_path: String,
+        groups: Vec<GroupName>,
+    },
+    #[error("the excluded package {name} ({rel_path}) was matched in these groups: {}", .groups.join(", "))]
+    ExcludedPackageFoundInGroup {
+        name: String,
+        rel_path: String,
+        groups: Vec<GroupName>,
+    },
     #[error("did not find any package")]
     EmptyWorkspace,
     #[error("package {0}'s manifest has no parent directory")]
