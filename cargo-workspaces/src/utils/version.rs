@@ -408,7 +408,10 @@ impl VersionOpt {
                             })
                             .collect::<Vec<_>>();
                         Select::new()
-                            .with_prompt(format!("{} packages in this group", group_pkgs.len()))
+                            .with_prompt(format!(
+                                "{} packages affected in this group",
+                                group_pkgs.len()
+                            ))
                             .items(&group_pkgs)
                             .default(0)
                             .clear(true)
