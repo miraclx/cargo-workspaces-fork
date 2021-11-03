@@ -126,31 +126,28 @@ impl VersionOpt {
         while !changed_p.is_empty() {
             self.get_new_versions(metadata, changed_p, &mut bumped_pkgs)?;
 
-            let pkgs = unchanged_p
-                .into_iter()
-                .partition::<Vec<_>, _>(|(group, p)| {
-                    let pkg = metadata
-                        .packages
-                        .iter()
-                        .find(|x| x.name == p.name)
-                        .expect(INTERNAL_ERR);
+            let pkgs = unchanged_p.into_iter().partition::<Vec<_>, _>(|(_, p)| {
+                let pkg = metadata
+                    .packages
+                    .iter()
+                    .find(|x| x.name == p.name)
+                    .expect(INTERNAL_ERR);
 
-                    pkg.dependencies.iter().any(|x| {
-                        if let Some((_, new_versions)) = bumped_pkgs.get(group) {
-                            if let Some(version) = new_versions
-                                .iter()
-                                .find(|(p, _, _)| x.name == p.name)
-                                .map(|y| &y.1)
-                            {
-                                !x.req.matches(version)
-                            } else {
-                                false
-                            }
+                pkg.dependencies.iter().any(|x| {
+                    bumped_pkgs.values().any(|(_, new_versions)| {
+                        if let Some(version) = new_versions
+                            .iter()
+                            .find(|(p, _, _)| x.name == p.name)
+                            .map(|y| &y.1)
+                        {
+                            !x.req.matches(version)
+                                || matches!(x.req.to_string().as_str(), "*" | ">=0.0.0")
                         } else {
                             false
                         }
                     })
-                });
+                })
+            });
 
             changed_p = pkgs.0;
             unchanged_p = pkgs.1;
