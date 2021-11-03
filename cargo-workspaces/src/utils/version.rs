@@ -252,11 +252,8 @@ impl VersionOpt {
                 }
 
                 for p in same_pkgs {
-                    new_versions.push((
-                        p,
-                        group_version.clone(),
-                        common_version.as_ref().expect(INTERNAL_ERR).clone(),
-                    ));
+                    let old_version = p.version.clone();
+                    new_versions.push((p, group_version.clone(), old_version));
                 }
             }
 
