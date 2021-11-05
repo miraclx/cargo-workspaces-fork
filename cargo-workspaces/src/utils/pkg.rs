@@ -280,19 +280,18 @@ pub fn get_group_packages(
                     }
                 }
 
-                if matched_groups.len() > 1 {
-                    return Err(Error::PackageExistsInMultipleGroups {
-                        name: pkg.name,
-                        rel_path: pkg.path.display().to_string(),
-                        groups: matched_groups,
-                    });
-                }
-
                 non_empty |= true;
-                break if matched_groups.is_empty() {
-                    GroupName::Default
-                } else {
-                    matched_groups.remove(0)
+
+                break match matched_groups.len() {
+                    0 => GroupName::Default,
+                    1 => matched_groups.remove(0),
+                    _ => {
+                        return Err(Error::PackageExistsInMultipleGroups {
+                            name: pkg.name,
+                            rel_path: pkg.path.display().to_string(),
+                            groups: matched_groups,
+                        })
+                    }
                 };
             };
 
