@@ -10,7 +10,7 @@ use oclif::{
     console::style,
     term::{TERM_ERR, TERM_OUT},
 };
-use semver::{Identifier, Version};
+use semver::{Identifier, Version, VersionReq};
 
 use std::{
     collections::{BTreeMap as Map, HashMap},
@@ -153,6 +153,34 @@ impl VersionOpt {
             unchanged_p = pkgs.1;
         }
 
+        let mut unversioned_deps = HashMap::new();
+
+        for (_, (_, new_versions)) in &bumped_pkgs {
+            for (p, _, _) in new_versions.iter() {
+                let pkg = metadata
+                    .packages
+                    .iter()
+                    .find(|x| x.name == p.name)
+                    .expect(INTERNAL_ERR);
+
+                for dep in pkg.dependencies.iter() {
+                    if let Some((_, v, _)) =
+                        new_versions.iter().find(|(x, _, _)| x.name == dep.name)
+                    {
+                        if matches!(dep.req.to_string().as_str(), "*" | ">=0.0.0") {
+                            unversioned_deps
+                                .entry(pkg.id.repr.as_str())
+                                .or_insert_with(|| (pkg.name.as_str(), vec![]))
+                                .1
+                                .push((dep.name.as_str(), &dep.req, v));
+                        }
+                    }
+                }
+            }
+        }
+
+        self.alert_unversioned(unversioned_deps)?;
+
         let (new_version, new_versions) = self.confirm_versions(bumped_pkgs)?;
 
         for p in &metadata.packages {
@@ -265,6 +293,62 @@ impl VersionOpt {
         }
 
         Ok(())
+    }
+
+    fn alert_unversioned(
+        &self,
+        pkgs: HashMap<&str, (&str, Vec<(&str, &VersionReq, &Version)>)>,
+    ) -> Result {
+        if pkgs.is_empty() {
+            return Ok(());
+        }
+        loop {
+            match Select::with_theme(&ColorfulTheme::default())
+                .with_prompt(format!(
+                    "You have {} packages with unversioned dependencies",
+                    pkgs.len()
+                ))
+                .items(&["Review Dependencies", "Auto-version", "Abort"])
+                .default(0)
+                .clear(true)
+                .interact_on_opt(&TERM_ERR)?
+            {
+                Some(2) | None => exit(0),
+                Some(1) => {
+                    if Confirm::with_theme(&ColorfulTheme::default())
+                        .with_prompt(
+                            "Are you sure you want this tool to auto-inject these versions?",
+                        )
+                        .default(false)
+                        .interact_on(&TERM_ERR)?
+                    {
+                        return Ok(());
+                    }
+                }
+                _ => {
+                    let mut items = vec![];
+                    for (name, deps) in pkgs.values() {
+                        items.push(format!(" │ {}", style(name).green()));
+                        for (dep, ver, new_ver) in deps {
+                            items.push(format!(
+                                " │ \u{21b3} {}: {} => {}",
+                                style(dep).cyan(),
+                                style(ver).yellow(),
+                                style(new_ver).green()
+                            ));
+                        }
+                    }
+                    Select::new()
+                        .with_prompt("Packages with unversioned dependencies")
+                        .items(&items)
+                        .default(0)
+                        .clear(true)
+                        .report(false)
+                        .max_length(10)
+                        .interact_on_opt(&TERM_ERR)?;
+                }
+            }
+        }
     }
 
     fn confirm_versions(
