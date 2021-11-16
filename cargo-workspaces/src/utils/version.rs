@@ -1,6 +1,6 @@
 use crate::utils::{
-    cargo, change_versions, info, read_config, ChangeData, ChangeOpt, Error, GitOpt, Pkg, Result,
-    WorkspaceConfig, INTERNAL_ERR,
+    cargo, change_versions, info, is_unversioned, read_config, ChangeData, ChangeOpt, Error,
+    GitOpt, Pkg, Result, WorkspaceConfig, INTERNAL_ERR,
 };
 
 use cargo_metadata::Metadata;
@@ -120,8 +120,7 @@ impl VersionOpt {
                 pkg.dependencies.iter().any(|x| {
                     if let Some(version) = new_versions.iter().find(|y| x.name == y.0).map(|y| &y.1)
                     {
-                        !x.req.matches(version)
-                            || matches!(x.req.to_string().as_str(), "*" | ">=0.0.0")
+                        !x.req.matches(version) || is_unversioned(&x.req)
                     } else {
                         false
                     }
@@ -134,7 +133,7 @@ impl VersionOpt {
 
         let mut unversioned_deps = HashMap::new();
 
-        for (p, _, _) in new_versions.iter() {
+        for (p, new_version, _) in new_versions.iter() {
             let pkg = metadata
                 .packages
                 .iter()
@@ -143,7 +142,7 @@ impl VersionOpt {
 
             for dep in pkg.dependencies.iter() {
                 if let Some((_, v, _)) = new_versions.iter().find(|(x, _, _)| x == &dep.name) {
-                    if matches!(dep.req.to_string().as_str(), "*" | ">=0.0.0") {
+                    if is_unversioned(&dep.req) && !is_unversioned(new_version) {
                         unversioned_deps
                             .entry(pkg.id.repr.as_str())
                             .or_insert_with(|| (pkg.name.as_str(), vec![]))
