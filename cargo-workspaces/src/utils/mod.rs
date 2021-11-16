@@ -9,7 +9,8 @@ mod pkg;
 mod version;
 
 pub use cargo::{
-    cargo, cargo_config_get, change_versions, check_index, is_published, rename_packages,
+    cargo, cargo_config_get, change_versions, check_index, is_published, is_unversioned,
+    rename_packages,
 };
 pub use changable::{ChangeData, ChangeOpt};
 pub use config::{read_config, PackageConfig, WorkspaceConfig};

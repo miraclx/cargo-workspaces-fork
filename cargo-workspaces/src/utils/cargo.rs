@@ -442,6 +442,35 @@ pub fn change_versions(
     )
 }
 
+pub trait VersionSpec {
+    fn is_unversioned(other: &Self) -> bool;
+}
+
+impl VersionSpec for Version {
+    fn is_unversioned(other: &Self) -> bool {
+        matches!(
+            other,
+            Version {
+                major: 0,
+                minor: 0,
+                patch: 0,
+                ..
+            }
+            if other.pre.is_empty() && other.build.is_empty()
+        )
+    }
+}
+
+impl VersionSpec for VersionReq {
+    fn is_unversioned(other: &Self) -> bool {
+        other == &VersionReq::parse(">=0.0.0").unwrap() || other == &VersionReq::any()
+    }
+}
+
+pub fn is_unversioned(v: &impl VersionSpec) -> bool {
+    VersionSpec::is_unversioned(v)
+}
+
 pub fn is_published(index: &mut Index, name: &str, version: &str) -> Result<bool> {
     // See if we already have the crate (and version) in cache
     if let Some(crate_data) = index.crate_(name) {
