@@ -152,6 +152,13 @@ impl VersionOpt {
             unchanged_p = pkgs.1;
         }
 
+        if bumped_pkgs.is_empty() {
+            TERM_OUT.write_line(
+                "Changes detected but the versions weren't bumped, skipping versioning",
+            )?;
+            return Ok(Map::new());
+        }
+
         let mut unversioned_deps = HashMap::new();
 
         for (_, (_, _, new_versions)) in &bumped_pkgs {
@@ -321,6 +328,10 @@ impl VersionOpt {
                 if old_version != new_version {
                     new_versions.push((p, new_version, old_version));
                 }
+            }
+
+            if new_versions.is_empty() {
+                bumped_pkgs.remove(&group_name);
             }
         }
 
