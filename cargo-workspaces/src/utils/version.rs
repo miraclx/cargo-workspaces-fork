@@ -392,6 +392,9 @@ impl VersionOpt {
         for (group, (grp_common_version, versions)) in
             default_group.into_iter().chain(remaining_groups)
         {
+            if versions.is_empty() {
+                continue;
+            }
             if let Some(group_name) = group.pretty_fmt() {
                 TERM_ERR.write_str(&format!(" {}", group_name))?;
             }
