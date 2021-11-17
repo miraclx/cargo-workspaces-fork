@@ -227,29 +227,36 @@ impl VersionOpt {
     fn get_new_versions(
         &self,
         metadata: &Metadata,
-        pkgs: Vec<(GroupName, Pkg)>,
+        pkgs: Vec<((GroupName, Option<Version>), Pkg)>,
         bumped_pkgs: &mut HashMap<GroupName, (Option<Version>, Vec<(Pkg, Version, Version)>)>,
     ) -> Result {
         let pkgs = pkgs
             .into_iter()
-            .filter(|(group, _)| !matches!(group, GroupName::Excluded));
+            .filter(|((group, _), _)| !matches!(group, GroupName::Excluded));
 
-        let mut changed_pkg_groups = pkgs.fold(HashMap::new(), |mut groups, (group, pkg)| {
-            Vec::push(groups.entry(group).or_default(), pkg);
-            groups
-        });
+        let mut changed_pkg_groups = pkgs.fold(
+            HashMap::new(),
+            |mut groups, ((group_name, group_ver), pkg)| {
+                groups
+                    .entry(group_name)
+                    .or_insert_with(|| (group_ver, vec![]))
+                    .1
+                    .push(pkg);
+                groups
+            },
+        );
 
         let default_group = changed_pkg_groups.remove_entry(&GroupName::Default);
         let remaining_groups = changed_pkg_groups
             .into_iter()
             .filter(|(group, _)| !matches!(group, GroupName::Default));
 
-        for (group, pkgs) in default_group.into_iter().chain(remaining_groups) {
+        for (group_name, (group_ver, pkgs)) in default_group.into_iter().chain(remaining_groups) {
             let (common_version, new_versions) = loop {
-                match bumped_pkgs.get_mut(&group) {
+                match bumped_pkgs.get_mut(&group_name) {
                     Some(pkg) => break pkg,
                     None => {
-                        bumped_pkgs.insert(group.clone(), Default::default());
+                        bumped_pkgs.insert(group_name.clone(), Default::default());
                     }
                 }
             };
@@ -258,25 +265,35 @@ impl VersionOpt {
                 .partition::<Vec<_>, _>(|p| p.config.independent.unwrap_or(false));
 
             if !same_pkgs.is_empty() {
-                let mut group_version = same_pkgs
-                    .iter()
-                    .map(|p| {
-                        &metadata
-                            .packages
+                let group_version = match group_ver {
+                    Some(ver) => ver,
+                    None => {
+                        let mut group_version = same_pkgs
                             .iter()
-                            .find(|x| x.id == p.id)
+                            .map(|p| {
+                                &metadata
+                                    .packages
+                                    .iter()
+                                    .find(|x| x.id == p.id)
+                                    .expect(INTERNAL_ERR)
+                                    .version
+                            })
+                            .max()
                             .expect(INTERNAL_ERR)
-                            .version
-                    })
-                    .max()
-                    .expect(INTERNAL_ERR)
-                    .clone();
-                if common_version.is_none() {
-                    let custom_group_version =
-                        self.ask_version(&group_version, &group, Some(&same_pkgs[..]), None)?;
-                    *common_version = Some(group_version);
-                    group_version = custom_group_version;
-                }
+                            .clone();
+                        if common_version.is_none() {
+                            let custom_group_version = self.ask_version(
+                                &group_version,
+                                &group_name,
+                                Some(&same_pkgs[..]),
+                                None,
+                            )?;
+                            *common_version = Some(group_version);
+                            group_version = custom_group_version;
+                        }
+                        group_version
+                    }
+                };
 
                 for p in same_pkgs {
                     let old_version = p.version.clone();
@@ -286,7 +303,8 @@ impl VersionOpt {
 
             for p in independent_pkgs {
                 let old_version = p.version.clone();
-                let new_version = self.ask_version(&old_version, &group, None, Some(&p.name))?;
+                let new_version =
+                    self.ask_version(&old_version, &group_name, None, Some(&p.name))?;
                 new_versions.push((p, new_version, old_version));
             }
         }

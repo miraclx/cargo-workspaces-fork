@@ -49,7 +49,7 @@ impl Rename {
 
         let mut rename_map = Map::new();
 
-        for (group_name, pkg) in workspace_groups.into_iter() {
+        for ((group_name, _), pkg) in workspace_groups.into_iter() {
             if let Some(pattern) = &ignore {
                 if pattern.matches(&pkg.name) {
                     continue;

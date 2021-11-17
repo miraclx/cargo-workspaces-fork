@@ -57,6 +57,10 @@ impl Changed {
             self.list.all,
         )?;
 
-        pkgs.0.list(self.list)
+        pkgs.0
+            .into_iter()
+            .map(|((group_name, _), pkgs)| (group_name, pkgs))
+            .collect::<Vec<_>>()
+            .list(self.list)
     }
 }

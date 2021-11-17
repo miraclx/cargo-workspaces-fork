@@ -18,6 +18,7 @@ impl List {
 
         workspace_groups
             .into_iter()
+            .map(|((group_name, _), pkgs)| (group_name, pkgs))
             .filter(|(group_name, _)| {
                 self.list.groups.is_empty() || self.list.groups.contains(group_name)
             })

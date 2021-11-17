@@ -1,6 +1,7 @@
 use crate::utils;
 
 use glob::Pattern;
+use semver::Version;
 use serde::{de, Deserialize};
 use serde_json::{from_value, Value};
 
@@ -30,6 +31,7 @@ pub struct PackageConfig {
 pub struct WorkspaceGroupSpec {
     #[serde(deserialize_with = "validate_group_name")]
     pub name: String,
+    pub version: Option<Version>,
     #[serde(deserialize_with = "deserialize_members")]
     pub members: Vec<Pattern>,
 }
@@ -43,6 +45,7 @@ pub struct ExcludeSpec {
 
 #[derive(Deserialize, Default, Debug, Clone, Ord, Eq, PartialOrd, PartialEq)]
 pub struct WorkspaceConfig {
+    pub version: Option<Version>,
     pub exclude: Option<ExcludeSpec>,
     pub group: Option<Vec<WorkspaceGroupSpec>>,
     pub allow_branch: Option<String>,

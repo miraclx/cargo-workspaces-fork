@@ -178,11 +178,11 @@ impl Borrow<str> for GroupName {
 #[derive(Eq, Clone, Debug, PartialEq, Serialize)]
 pub struct WorkspaceGroups {
     #[serde(flatten)]
-    pub named_groups: HashMap<GroupName, Vec<Pkg>>,
+    pub named_groups: HashMap<GroupName, (Option<Version>, Vec<Pkg>)>,
 }
 
 impl WorkspaceGroups {
-    pub fn into_iter(mut self) -> impl Iterator<Item = (GroupName, Pkg)> {
+    pub fn into_iter(mut self) -> impl Iterator<Item = ((GroupName, Option<Version>), Pkg)> {
         let default = self
             .named_groups
             .remove_entry(&GroupName::Default)
@@ -197,7 +197,7 @@ impl WorkspaceGroups {
         default
             .chain(rest)
             .chain(excluded)
-            .map(|(group, pkgs)| repeat(group).zip(pkgs.into_iter()))
+            .map(|(group, (ver, pkgs))| repeat((group, ver)).zip(pkgs.into_iter()))
             .flatten()
     }
 }
@@ -247,7 +247,7 @@ pub fn get_group_packages(
                 config: read_config(&pkg.metadata)?,
             };
 
-            let group_name = loop {
+            let (group_name, group_version) = loop {
                 let mut matched_groups = vec![];
 
                 if let Some(ref package_groups) = workspace_config.group {
@@ -257,7 +257,10 @@ pub fn get_group_packages(
                             .iter()
                             .any(|x| x.matches_path(pkg.path.as_path()))
                         {
-                            matched_groups.push(GroupName::Custom(group.name.clone()));
+                            matched_groups.push((
+                                GroupName::Custom(group.name.clone()),
+                                group.version.clone(),
+                            ));
                         }
                     }
                 }
@@ -269,12 +272,15 @@ pub fn get_group_packages(
                         .any(|x| x.matches_path(pkg.path.as_path()))
                     {
                         if matched_groups.is_empty() {
-                            break GroupName::Excluded;
+                            break (GroupName::Excluded, None);
                         } else {
                             return Err(Error::ExcludedPackageFoundInGroup {
                                 name: pkg.name,
                                 rel_path: pkg.path.display().to_string(),
-                                groups: matched_groups,
+                                groups: matched_groups
+                                    .into_iter()
+                                    .map(|(group_name, _)| group_name)
+                                    .collect(),
                             });
                         }
                     }
@@ -283,13 +289,16 @@ pub fn get_group_packages(
                 non_empty |= true;
 
                 break match matched_groups.len() {
-                    0 => GroupName::Default,
+                    0 => (GroupName::Default, workspace_config.version.clone()),
                     1 => matched_groups.remove(0),
                     _ => {
                         return Err(Error::PackageExistsInMultipleGroups {
                             name: pkg.name,
                             rel_path: pkg.path.display().to_string(),
-                            groups: matched_groups,
+                            groups: matched_groups
+                                .into_iter()
+                                .map(|(group_name, _)| group_name)
+                                .collect(),
                         })
                     }
                 };
@@ -298,7 +307,8 @@ pub fn get_group_packages(
             pkg_groups
                 .named_groups
                 .entry(group_name)
-                .or_default()
+                .or_insert_with(|| (group_version, vec![]))
+                .1
                 .push(pkg);
         } else {
             Error::PackageNotFound {
@@ -315,6 +325,6 @@ pub fn get_group_packages(
     pkg_groups
         .named_groups
         .values_mut()
-        .for_each(|pkgs| pkgs.sort());
+        .for_each(|(_, pkgs)| pkgs.sort());
     Ok(pkg_groups)
 }

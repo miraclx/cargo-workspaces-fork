@@ -5,6 +5,7 @@ use cargo_metadata::Metadata;
 use clap::Parser;
 use glob::{Pattern, PatternError};
 use regex::Regex;
+use semver::Version;
 use std::path::Path;
 
 #[derive(Debug, Parser)]
@@ -80,7 +81,13 @@ impl ChangeOpt {
         since: &Option<String>,
         filter: &[GroupName],
         private: bool,
-    ) -> Result<(Vec<(GroupName, Pkg)>, Vec<(GroupName, Pkg)>), Error> {
+    ) -> Result<
+        (
+            Vec<((GroupName, Option<Version>), Pkg)>,
+            Vec<((GroupName, Option<Version>), Pkg)>,
+        ),
+        Error,
+    > {
         let workspace_groups = get_group_packages(metadata, &config, private)?;
 
         let pkgs = if let Some(since) = since {
@@ -103,27 +110,29 @@ impl ChangeOpt {
                 .map(|x| Pattern::new(&x))
                 .map_or::<Result<_, PatternError>, _>(Ok(None), |x| Ok(x.ok()))?;
 
-            workspace_groups.into_iter().partition(|(group_name, p)| {
-                if let Some(pattern) = &force {
-                    if pattern.matches(&p.name) {
-                        return true;
-                    }
-                }
-
-                if !(filter.is_empty() || filter.contains(&group_name)) {
-                    return false;
-                }
-
-                changed_files.iter().any(|f| {
-                    if let Some(pattern) = &ignore_changes {
-                        if pattern.matches(f.to_str().expect(INTERNAL_ERR)) {
-                            return false;
+            workspace_groups
+                .into_iter()
+                .partition(|((group_name, _), p)| {
+                    if let Some(pattern) = &force {
+                        if pattern.matches(&p.name) {
+                            return true;
                         }
                     }
 
-                    f.starts_with(&p.path)
+                    if !(filter.is_empty() || filter.contains(&group_name)) {
+                        return false;
+                    }
+
+                    changed_files.iter().any(|f| {
+                        if let Some(pattern) = &ignore_changes {
+                            if pattern.matches(f.to_str().expect(INTERNAL_ERR)) {
+                                return false;
+                            }
+                        }
+
+                        f.starts_with(&p.path)
+                    })
                 })
-            })
         } else {
             (workspace_groups.into_iter().collect(), vec![])
         };
