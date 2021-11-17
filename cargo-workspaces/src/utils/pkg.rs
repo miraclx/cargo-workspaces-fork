@@ -247,48 +247,34 @@ pub fn get_group_packages(
                 config: read_config(&pkg.metadata)?,
             };
 
-            let (group_name, group_version) = loop {
-                let mut matched_groups = vec![];
-
-                if let Some(ref package_groups) = workspace_config.group {
-                    for group in package_groups.iter() {
-                        if group
-                            .members
-                            .iter()
-                            .any(|x| x.matches_path(pkg.path.as_path()))
-                        {
-                            matched_groups.push((
-                                GroupName::Custom(group.name.clone()),
-                                group.version.clone(),
-                            ));
-                        }
-                    }
-                }
-
+            let (group_name, group_version) = 'found_group: loop {
                 if let Some(ref exclude_spec) = workspace_config.exclude {
-                    if exclude_spec
-                        .members
-                        .iter()
-                        .any(|x| x.matches_path(pkg.path.as_path()))
-                    {
-                        if matched_groups.is_empty() {
-                            break (GroupName::Excluded, None);
-                        } else {
-                            return Err(Error::ExcludedPackageFoundInGroup {
-                                name: pkg.name,
-                                rel_path: pkg.path.display().to_string(),
-                                groups: matched_groups
-                                    .into_iter()
-                                    .map(|(group_name, _)| group_name)
-                                    .collect(),
-                            });
+                    for member_pat in exclude_spec.members.iter() {
+                        if member_pat.matches_path(pkg.path.as_path()) {
+                            break 'found_group (GroupName::Excluded, None);
                         }
                     }
                 }
+
+                let mut matched_groups = vec![];
 
                 non_empty |= true;
 
-                break match matched_groups.len() {
+                if let Some(ref package_groups) = workspace_config.group {
+                    for group in package_groups.iter() {
+                        for member_pat in group.members.iter() {
+                            if member_pat.matches_path(pkg.path.as_path()) {
+                                matched_groups.push((
+                                    GroupName::Custom(group.name.clone()),
+                                    group.version.clone(),
+                                ));
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                break 'found_group match matched_groups.len() {
                     0 => (GroupName::Default, workspace_config.version.clone()),
                     1 => matched_groups.remove(0),
                     _ => {

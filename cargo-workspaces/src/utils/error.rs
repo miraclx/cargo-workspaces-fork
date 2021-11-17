@@ -62,12 +62,6 @@ pub enum Error {
         rel_path: String,
         groups: Vec<GroupName>,
     },
-    #[error("the excluded package {name} ({rel_path}) was matched in these groups: {}", .groups.join(", "))]
-    ExcludedPackageFoundInGroup {
-        name: String,
-        rel_path: String,
-        groups: Vec<GroupName>,
-    },
     #[error("did not find any package")]
     EmptyWorkspace,
     #[error("package {0}'s manifest has no parent directory")]
