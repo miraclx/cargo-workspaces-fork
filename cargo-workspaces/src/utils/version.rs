@@ -320,7 +320,7 @@ impl VersionOpt {
         &self,
         pkgs: HashMap<&str, (&str, Vec<(&str, &VersionReq, &Version)>)>,
     ) -> Result {
-        if pkgs.is_empty() {
+        if pkgs.is_empty() || self.yes {
             return Ok(());
         }
         loop {
@@ -378,13 +378,13 @@ impl VersionOpt {
     ) -> Result<(Option<Version>, Map<String, Version>)> {
         let mut new_versions = Map::new();
 
-        let new_version = bumped_pkgs
-            .get(&GroupName::Default)
-            .and_then(|(version, _)| version.clone());
-
         TERM_ERR.write_line("\nChanges:")?;
 
         let default_group = bumped_pkgs.remove_entry(&GroupName::Default);
+        let new_version = default_group
+            .as_ref()
+            .and_then(|(_, (version, _))| version.clone());
+
         let remaining_groups = bumped_pkgs
             .into_iter()
             .filter(|(group, _)| !matches!(group, GroupName::Default));
