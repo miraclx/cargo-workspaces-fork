@@ -134,7 +134,7 @@ impl VersionOpt {
                     .expect(INTERNAL_ERR);
 
                 pkg.dependencies.iter().any(|x| {
-                    bumped_pkgs.values().any(|(_, new_versions)| {
+                    bumped_pkgs.values().any(|(_, _, new_versions)| {
                         if let Some(version) = new_versions
                             .iter()
                             .find(|(p, _, _)| x.name == p.name)
@@ -154,7 +154,7 @@ impl VersionOpt {
 
         let mut unversioned_deps = HashMap::new();
 
-        for (_, (_, new_versions)) in &bumped_pkgs {
+        for (_, (_, _, new_versions)) in &bumped_pkgs {
             for (p, new_version, _) in new_versions.iter() {
                 let pkg = metadata
                     .packages
@@ -228,7 +228,14 @@ impl VersionOpt {
         &self,
         metadata: &Metadata,
         pkgs: Vec<((GroupName, Option<Version>), Pkg)>,
-        bumped_pkgs: &mut HashMap<GroupName, (Option<Version>, Vec<(Pkg, Version, Version)>)>,
+        bumped_pkgs: &mut HashMap<
+            GroupName,
+            (
+                Option<Version>,
+                Option<Version>,
+                Vec<(Pkg, Version, Version)>,
+            ),
+        >,
     ) -> Result {
         let pkgs = pkgs
             .into_iter()
@@ -252,7 +259,7 @@ impl VersionOpt {
             .filter(|(group, _)| !matches!(group, GroupName::Default));
 
         for (group_name, (group_ver, pkgs)) in default_group.into_iter().chain(remaining_groups) {
-            let (common_version, new_versions) = loop {
+            let (common_version, new_group_version, new_versions) = loop {
                 match bumped_pkgs.get_mut(&group_name) {
                     Some(pkg) => break pkg,
                     None => {
@@ -294,6 +301,10 @@ impl VersionOpt {
                         group_version
                     }
                 };
+
+                if let None = new_group_version {
+                    *new_group_version = Some(group_version.clone());
+                }
 
                 for p in same_pkgs {
                     let old_version = p.version.clone();
@@ -374,7 +385,14 @@ impl VersionOpt {
 
     fn confirm_versions(
         &self,
-        mut bumped_pkgs: HashMap<GroupName, (Option<Version>, Vec<(Pkg, Version, Version)>)>,
+        mut bumped_pkgs: HashMap<
+            GroupName,
+            (
+                Option<Version>,
+                Option<Version>,
+                Vec<(Pkg, Version, Version)>,
+            ),
+        >,
     ) -> Result<(Option<Version>, Map<String, Version>)> {
         let mut new_versions = Map::new();
 
@@ -383,13 +401,13 @@ impl VersionOpt {
         let default_group = bumped_pkgs.remove_entry(&GroupName::Default);
         let new_version = default_group
             .as_ref()
-            .and_then(|(_, (version, _))| version.clone());
+            .and_then(|(_, (_, group_version, _))| group_version.clone());
 
         let remaining_groups = bumped_pkgs
             .into_iter()
             .filter(|(group, _)| !matches!(group, GroupName::Default));
 
-        for (group, (grp_common_version, versions)) in
+        for (group, (grp_common_version, _, versions)) in
             default_group.into_iter().chain(remaining_groups)
         {
             if versions.is_empty() {
