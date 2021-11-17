@@ -31,9 +31,8 @@ pub fn git<'a>(root: &Utf8PathBuf, args: &[&'a str]) -> Result<(String, String),
 pub struct GitOpt {
     /// Do not commit version changes
     #[clap(long, conflicts_with_all = &[
-        "allow-branch", "amend", "message", "no-git-tag",
-        "tag-prefix", "individual-tag-prefix", "no-individual-tags",
-        "no-git-push", "git-remote", "no-global-tag"
+        "allow-branch", "amend", "message",
+        "git-remote", "no-global-tag"
     ])]
     pub no_git_commit: bool,
 
@@ -55,8 +54,12 @@ pub struct GitOpt {
     pub message: Option<String>,
 
     /// Do not tag generated commit
-    #[clap(long, conflicts_with_all = &["tag-prefix", "individual-tag-prefix", "no-individual-tags"])]
+    #[clap(long, conflicts_with_all = &["tag-existing", "tag-prefix", "individual-tag-prefix", "no-individual-tags"])]
     pub no_git_tag: bool,
+
+    /// Always tag the most recent commit, even when we don't create one
+    #[clap(long, conflicts_with_all = &["no_git_tag"])]
+    pub tag_existing: bool,
 
     /// Do not tag individual versions for crates
     #[clap(long, conflicts_with_all = &["individual-tag-prefix"])]
@@ -200,7 +203,7 @@ impl GitOpt {
         if !self.no_git_commit {
             info!("version", "committing changes");
 
-            let branch = branch.expect(INTERNAL_ERR);
+            let branch = branch.as_ref().expect(INTERNAL_ERR);
             let added = git(root, &["add", "-u"])?;
 
             if !added.0.is_empty() || !added.1.is_empty() {
@@ -235,36 +238,38 @@ impl GitOpt {
 
             let committed = git(root, &args.iter().map(|x| x.as_str()).collect::<Vec<_>>())?;
 
-            if !committed.0.contains(&branch) || !committed.1.is_empty() {
+            if !committed.0.contains(branch) || !committed.1.is_empty() {
                 return Err(Error::NotCommitted(committed.0, committed.1));
             }
+        }
 
-            if !self.no_git_tag {
-                info!("version", "tagging");
+        if (!self.no_git_commit || self.tag_existing) && !self.no_git_tag {
+            info!("version", "tagging");
 
-                if !self.no_global_tag {
-                    if let Some(version) = new_version {
-                        let tag = format!("{}{}", &self.tag_prefix, version);
-                        self.tag(root, &tag, &tag)?;
-                    }
-                }
-
-                if !(self.no_individual_tags || config.no_individual_tags.unwrap_or_default()) {
-                    for (p, v) in new_versions {
-                        let tag = format!("{}{}", self.individual_tag_prefix.replace("%n", p), v);
-                        self.tag(root, &tag, &tag)?;
-                    }
+            if !self.no_global_tag {
+                if let Some(version) = new_version {
+                    let tag = format!("{}{}", &self.tag_prefix, version);
+                    self.tag(root, &tag, &tag)?;
                 }
             }
 
-            if !self.no_git_push {
-                info!("git", "pushing");
-
-                let pushed = git(root, &["push", "--follow-tags", &self.git_remote, &branch])?;
-
-                if !pushed.0.is_empty() || !pushed.1.starts_with("To") {
-                    return Err(Error::NotPushed(pushed.0, pushed.1));
+            if !(self.no_individual_tags || config.no_individual_tags.unwrap_or_default()) {
+                for (p, v) in new_versions {
+                    let tag = format!("{}{}", self.individual_tag_prefix.replace("%n", p), v);
+                    self.tag(root, &tag, &tag)?;
                 }
+            }
+        }
+
+        if !self.no_git_push {
+            let branch = branch.expect(INTERNAL_ERR);
+
+            info!("git", "pushing");
+
+            let pushed = git(root, &["push", "--follow-tags", &self.git_remote, &branch])?;
+
+            if !pushed.0.is_empty() || !pushed.1.starts_with("To") {
+                return Err(Error::NotPushed(pushed.0, pushed.1));
             }
         }
 
