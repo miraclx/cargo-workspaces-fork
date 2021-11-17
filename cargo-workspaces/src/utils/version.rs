@@ -403,6 +403,8 @@ impl VersionOpt {
                     " (current common version: {})",
                     style(version.to_string()).yellow().for_stderr()
                 ))?;
+            } else {
+                TERM_ERR.write_line("")?;
             }
             for (p, new_version, cur_version) in versions {
                 TERM_ERR.write_line(&format!(
