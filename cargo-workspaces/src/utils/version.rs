@@ -297,7 +297,9 @@ impl VersionOpt {
 
                 for p in same_pkgs {
                     let old_version = p.version.clone();
-                    new_versions.push((p, group_version.clone(), old_version));
+                    if old_version != group_version {
+                        new_versions.push((p, group_version.clone(), old_version));
+                    }
                 }
             }
 
@@ -305,7 +307,9 @@ impl VersionOpt {
                 let old_version = p.version.clone();
                 let new_version =
                     self.ask_version(&old_version, &group_name, None, Some(&p.name))?;
-                new_versions.push((p, new_version, old_version));
+                if old_version != new_version {
+                    new_versions.push((p, new_version, old_version));
+                }
             }
         }
 
