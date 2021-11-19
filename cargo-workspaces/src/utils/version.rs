@@ -97,7 +97,7 @@ pub struct VersionOpt {
 }
 
 impl VersionOpt {
-    pub fn do_versioning(&self, metadata: &Metadata) -> Result<Map<String, Version>> {
+    pub fn do_versioning(&self, metadata: &Metadata) -> Result<Map<String, (Pkg, Version)>> {
         let config: WorkspaceConfig = read_config(&metadata.workspace_metadata)?;
         let branch = self.git.validate(&metadata.workspace_root, &config)?;
 
@@ -205,7 +205,11 @@ impl VersionOpt {
                     change_versions(
                         fs::read_to_string(&p.manifest_path)?,
                         &p.name,
-                        &new_versions,
+                        &new_versions
+                            .clone()
+                            .into_iter()
+                            .map(|(p, (_, v))| (p, v))
+                            .collect(),
                         self.exact,
                     )?
                 ),
@@ -404,7 +408,7 @@ impl VersionOpt {
                 Vec<(Pkg, Version, Version)>,
             ),
         >,
-    ) -> Result<(Option<Version>, Map<String, Version>)> {
+    ) -> Result<(Option<Version>, Map<String, (Pkg, Version)>)> {
         let mut new_versions = Map::new();
 
         TERM_ERR.write_line("\nChanges:")?;
@@ -442,7 +446,7 @@ impl VersionOpt {
                     cur_version,
                     style(&new_version).yellow().for_stderr()
                 ))?;
-                new_versions.insert(p.name.clone(), new_version);
+                new_versions.insert(p.name.clone(), (p, new_version));
             }
         }
 

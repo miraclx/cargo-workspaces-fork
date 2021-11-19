@@ -49,7 +49,7 @@ impl Publish {
                             .find(|y| x.0 == &y.name)
                             .expect(INTERNAL_ERR)
                             .clone(),
-                        x.1.to_string(),
+                        x.1 .1.to_string(),
                     )
                 })
                 .collect::<Vec<_>>()

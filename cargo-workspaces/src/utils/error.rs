@@ -112,6 +112,8 @@ pub enum Error {
     NotCommitted(String, String),
     #[error("unable to tag {0}, out = {1}, err = {2}")]
     NotTagged(String, String, String),
+    #[error("unterminated tag message scope")]
+    UnterminatedTagMsgScope(String),
     #[error("unable to push to remote, out = {0}, err = {1}")]
     NotPushed(String, String),
 
