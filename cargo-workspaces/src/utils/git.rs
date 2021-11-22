@@ -326,12 +326,16 @@ impl GitOpt {
     }
 
     fn tag(&self, root: &Utf8PathBuf, tag: &str, msg: &str) -> Result<(), Error> {
-        let tagged = git(root, &["tag", tag, "-m", msg])?;
+        let (tags, _) = git(root, &["tag"])?;
+        if let None = tags.split("\n").find(|existing_tag| &tag == existing_tag) {
+            let tagged = git(root, &["tag", tag, "-m", msg])?;
 
-        if !tagged.0.is_empty() || !tagged.1.is_empty() {
-            return Err(Error::NotTagged(tag.to_string(), tagged.0, tagged.1));
+            if !tagged.0.is_empty() || !tagged.1.is_empty() {
+                return Err(Error::NotTagged(tag.to_string(), tagged.0, tagged.1));
+            }
+        } else {
+            info!("version", "tag already exists");
         }
-
         Ok(())
     }
 
