@@ -88,8 +88,8 @@ pub struct GitOpt {
     pub individual_tag_prefix: String,
 
     /// Customize tag msg, defaults to tag name (can contain `%v`)
-    #[clap(long, value_name = "msg")]
-    pub tag_msg: Option<String>,
+    #[clap(long, value_name = "msg", multiple_occurrences = true)]
+    pub tag_msg: Vec<String>,
 
     /// Customize tag msg for individual tags, defaults to individual tag name (can contain `%n` and `%v`)
     #[clap(long, value_name = "msg")]
@@ -261,38 +261,35 @@ impl GitOpt {
             if !self.no_global_tag {
                 if let Some(version) = new_version {
                     let tag = format!("{}{}", &self.tag_prefix, version);
-                    let msg = match self.tag_msg.clone() {
-                        Some(mut msg) => {
-                            {
-                                let mut s = String::new();
-                                for (i, scope) in msg.split("%{").enumerate() {
-                                    if i == 0 {
-                                        s.push_str(scope);
-                                        continue;
-                                    }
-                                    let (template, rest) =
-                                        scope.split_once("}").ok_or_else(|| {
-                                            Error::UnterminatedTagMsgScope(msg.clone())
-                                        })?;
-                                    for (_, (p, v)) in new_versions {
-                                        if !p.private || self.tag_private {
-                                            s.push_str(
-                                                &template
-                                                    .replace("%n", &p.name)
-                                                    .replace("%v", &v.to_string()),
-                                            );
-                                        }
-                                    }
-                                    s.push_str(rest);
+                    let mut msgs = Vec::with_capacity(self.tag_msg.capacity().max(1));
+                    for msg in &self.tag_msg {
+                        let mut s = String::new();
+                        for (i, scope) in msg.split("%{").enumerate() {
+                            if i == 0 {
+                                s.push_str(scope);
+                                continue;
+                            }
+                            let (template, rest) = scope
+                                .split_once("}")
+                                .ok_or_else(|| Error::UnterminatedTagMsgScope(msg.clone()))?;
+                            for (_, (p, v)) in new_versions {
+                                if !p.private || self.tag_private {
+                                    s.push_str(
+                                        &template
+                                            .replace("%n", &p.name)
+                                            .replace("%v", &v.to_string()),
+                                    );
                                 }
-                                msg = s;
-                            };
-                            msg.replace("%v", &version.to_string())
+                            }
+                            s.push_str(rest);
                         }
-                        None => tag.clone(),
-                    };
+                        msgs.push(s.replace("%v", &version.to_string()));
+                    }
+                    if msgs.is_empty() {
+                        msgs.push(tag.clone());
+                    }
 
-                    self.tag(root, &tag, &msg)?;
+                    self.tag(root, &tag, &msgs)?;
                 }
             }
 
@@ -304,7 +301,7 @@ impl GitOpt {
                         let msg = self.individual_tag_msg.as_ref().map_or(tag.clone(), |msg| {
                             msg.replace("%n", &p.name).replace("%v", &v.to_string())
                         });
-                        self.tag(root, &tag, &msg)?;
+                        self.tag(root, &tag, &[msg])?;
                     }
                 }
             }
@@ -325,10 +322,14 @@ impl GitOpt {
         Ok(())
     }
 
-    fn tag(&self, root: &Utf8PathBuf, tag: &str, msg: &str) -> Result<(), Error> {
+    fn tag(&self, root: &Utf8PathBuf, tag: &str, msgs: &[String]) -> Result<(), Error> {
         let (tags, _) = git(root, &["tag"])?;
         if let None = tags.split("\n").find(|existing_tag| &tag == existing_tag) {
-            let tagged = git(root, &["tag", tag, "-m", msg])?;
+            let mut args = vec!["tag", tag, "-a"];
+            for msg in msgs {
+                args.extend(&["-m", &msg]);
+            }
+            let tagged = git(root, &args)?;
 
             if !tagged.0.is_empty() || !tagged.1.is_empty() {
                 return Err(Error::NotTagged(tag.to_string(), tagged.0, tagged.1));
