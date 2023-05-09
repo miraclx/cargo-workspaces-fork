@@ -1,0 +1,8 @@
+[workspace]
+members = ["crates/foo", "crates/bar", "crates/common", "crates/foobar"]
+
+[workspace.dependencies]
+foo = { path = "./crates/foo" }
+bar = { path = "./crates/bar" }
+foobar = { path = "./crates/foobar" }
+common = { path = "./crates/common", package = "libcommon" }
