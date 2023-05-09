@@ -3,14 +3,15 @@ use crate::utils::{
     INTERNAL_ERR,
 };
 use cargo_metadata::Metadata;
-use clap::{ArgSettings, Parser};
+use clap::Parser;
 use crates_index::Index;
 use indexmap::IndexSet as Set;
 
 /// Publish crates in the project
 #[derive(Debug, Parser)]
+#[clap(next_help_heading = "PUBLISH OPTIONS")]
 pub struct Publish {
-    #[clap(flatten)]
+    #[clap(flatten, next_help_heading = None)]
     version: VersionOpt,
 
     /// Publish crates from the current commit without versioning
@@ -19,7 +20,7 @@ pub struct Publish {
     from_git: bool,
 
     /// Skip already published crate versions
-    #[clap(long, hidden = true)]
+    #[clap(long, hide = true)]
     skip_published: bool,
 
     /// Skip crate verification (not recommended)
@@ -31,8 +32,12 @@ pub struct Publish {
     allow_dirty: bool,
 
     /// The token to use for publishing
-    #[clap(long, setting(ArgSettings::ForbidEmptyValues))]
+    #[clap(long, forbid_empty_values(true))]
     token: Option<String>,
+
+    /// The Cargo registry to use for publishing
+    #[clap(long, forbid_empty_values(true))]
+    registry: Option<String>,
 }
 
 impl Publish {
@@ -105,6 +110,11 @@ impl Publish {
 
             if self.allow_dirty {
                 args.push("--allow-dirty");
+            }
+
+            if let Some(ref registry) = self.registry {
+                args.push("--registry");
+                args.push(registry);
             }
 
             if let Some(ref token) = self.token {

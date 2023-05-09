@@ -4,7 +4,7 @@ use crate::utils::{
 };
 
 use cargo_metadata::Metadata;
-use clap::{ArgEnum, ArgSettings, Parser};
+use clap::{ArgEnum, Parser};
 use dialoguer::{theme::ColorfulTheme, Confirm, Input, Select};
 use oclif::{
     console::style,
@@ -46,22 +46,19 @@ impl Bump {
 }
 
 #[derive(Debug, Parser)]
+#[clap(next_help_heading = "VERSION OPTIONS")]
 pub struct VersionOpt {
     /// Increment all versions by the given explicit
     /// semver keyword while skipping the prompts for them
-    #[clap(arg_enum)]
+    #[clap(arg_enum, help_heading = "VERSION ARGS")]
     pub bump: Option<Bump>,
 
     /// Specify custom version value when 'bump' is set to 'custom'
-    #[clap(required_if_eq("bump", "custom"))]
+    #[clap(required_if_eq("bump", "custom"), help_heading = "VERSION ARGS")]
     pub custom: Option<Version>,
 
     /// Specify prerelease identifier
-    #[clap(
-        long,
-        value_name = "identifier",
-        setting(ArgSettings::ForbidEmptyValues)
-    )]
+    #[clap(long, value_name = "identifier", forbid_empty_values(true))]
     pub pre_id: Option<String>,
 
     #[clap(flatten)]
@@ -86,7 +83,7 @@ pub struct VersionOpt {
     #[clap(
         long,
         multiple_occurrences = true,
-        use_delimiter = true,
+        use_value_delimiter = true,
         number_of_values = 1
     )]
     pub groups: Vec<GroupName>,

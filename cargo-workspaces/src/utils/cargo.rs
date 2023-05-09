@@ -26,12 +26,18 @@ lazy_static! {
             .expect(INTERNAL_ERR);
     static ref PACKAGE: Regex =
         Regex::new(r#"^(\s*['"]?package['"]?\s*=\s*['"])([0-9A-Za-z-_]+)(['"].*)$"#).expect(INTERNAL_ERR);
+    static ref DEP_TABLE: Regex =
+        Regex::new(r#"^\[(target\.'?([^']+)'?\.)?dependencies]"#).expect(INTERNAL_ERR);
     static ref DEP_ENTRY: Regex =
-        Regex::new(r#"^\[dependencies.([0-9A-Za-z-_]+)]"#).expect(INTERNAL_ERR);
+        Regex::new(r#"^\[dependencies\.([0-9A-Za-z-_]+)]"#).expect(INTERNAL_ERR);
+    static ref BUILD_DEP_TABLE: Regex =
+        Regex::new(r#"^\[(target\.'?([^']+)'?\.)?build-dependencies]"#).expect(INTERNAL_ERR);
     static ref BUILD_DEP_ENTRY: Regex =
-        Regex::new(r#"^\[build-dependencies.([0-9A-Za-z-_]+)]"#).expect(INTERNAL_ERR);
+        Regex::new(r#"^\[build-dependencies\.([0-9A-Za-z-_]+)]"#).expect(INTERNAL_ERR);
+    static ref DEV_DEP_TABLE: Regex =
+        Regex::new(r#"^\[(target\.'?([^']+)'?\.)?dev-dependencies]"#).expect(INTERNAL_ERR);
     static ref DEV_DEP_ENTRY: Regex =
-        Regex::new(r#"^\[dev-dependencies.([0-9A-Za-z-_]+)]"#).expect(INTERNAL_ERR);
+        Regex::new(r#"^\[dev-dependencies\.([0-9A-Za-z-_]+)]"#).expect(INTERNAL_ERR);
     static ref DEP_DIRECT_VERSION: Regex =
         Regex::new(r#"^(\s*['"]?([0-9A-Za-z-_]+)['"]?\s*=\s*['"])([^'"]+)(['"].*)$"#)
             .expect(INTERNAL_ERR);
@@ -48,11 +54,13 @@ lazy_static! {
         Regex::new(r#"^(\s*['"]?([0-9A-Za-z-_]+)['"]?\s*=\s*)(['"][^'"]+['"])(.*)$"#)
             .expect(INTERNAL_ERR);
     static ref DEP_OBJ_NAME: Regex =
-        Regex::new(r#"^(\s*['"]?([0-9A-Za-z-_]+)['"]?\s*=\s*\{.*?)(\s*}.*)$"#)
+        Regex::new(r#"^(\s*['"]?([0-9A-Za-z-_]+)['"]?\s*=\s*\{(.*[^\s])?)(\s*}.*)$"#)
             .expect(INTERNAL_ERR);
     static ref DEP_OBJ_RENAME_NAME: Regex =
         Regex::new(r#"^(\s*['"]?[0-9A-Za-z-_]+['"]?\s*=\s*\{.*['"]?package['"]?\s*=\s*['"])([0-9A-Za-z-_]+)(['"].*}.*)$"#)
             .expect(INTERNAL_ERR);
+    static ref WORKSPACE_KEY: Regex =
+        Regex::new(r#"['"]?workspace['"]?\s*=\s*true"#).expect(INTERNAL_ERR);
 }
 
 pub fn cargo<'a>(
@@ -119,7 +127,7 @@ pub fn cargo<'a>(
 
 pub fn cargo_config_get(root: &Utf8Path, name: &str) -> Result<String> {
     // You know how we sometimes have to make the best of an unfortunate
-    // situation?  This is one of those situations.
+    // situation? This is one of those situations.
     //
     // In order to support private registries, we need to know the URL of their
     // index. That's stored in a `.cargo/config.toml` file, which could be in
@@ -243,20 +251,25 @@ where
             }
         }
         let count = new_lines.len();
+
         #[allow(clippy::if_same_then_else)]
         if trimmed.starts_with("[package]") {
             context = Context::Package;
-        } else if trimmed.starts_with("[dependencies]") {
+        } else if let Some(_) = DEP_TABLE.captures(trimmed) {
             context = Context::Dependencies;
-        } else if trimmed.starts_with("[build-dependencies]") {
+        } else if let Some(_) = BUILD_DEP_TABLE.captures(trimmed) {
             context = Context::Dependencies;
-        } else if dev_deps && trimmed.starts_with("[dev-dependencies]") {
-            context = Context::Dependencies;
+        } else if let Some(_) = DEV_DEP_TABLE.captures(trimmed) {
+            // TODO: let-chain
+            if dev_deps {
+                context = Context::Dependencies;
+            }
         } else if let Some(caps) = DEP_ENTRY.captures(trimmed) {
             context = Context::DependencyEntry(caps[1].to_string(), None);
         } else if let Some(caps) = BUILD_DEP_ENTRY.captures(trimmed) {
             context = Context::DependencyEntry(caps[1].to_string(), None);
         } else if let Some(caps) = DEV_DEP_ENTRY.captures(trimmed) {
+            // TODO: let-chain
             if dev_deps {
                 context = Context::DependencyEntry(caps[1].to_string(), None);
             }
@@ -264,10 +277,10 @@ where
             context = Context::DontCare;
         } else {
             // TODO: Support `package.version` like stuff (with quotes) at beginning
-            match context {
+            match &mut context {
                 Context::Package => package_f(line, &mut new_lines)?,
                 Context::Dependencies => dependencies_f(line, &mut new_lines)?,
-                Context::DependencyEntry(ref mut dep, ref mut dep_meta) => {
+                Context::DependencyEntry(dep, dep_meta) => {
                     let mut line_meta = None;
 
                     if let Some(new_dep) = dependency_entries_f(line, &mut line_meta)? {
@@ -322,10 +335,12 @@ pub fn rename_packages(
                 rename_dep(caps, new_lines, renames, 2)?;
             } else if let Some(caps) = DEP_OBJ_NAME.captures(line) {
                 if let Some(new_name) = renames.get(&caps[2]) {
-                    new_lines.push(format!(
-                        "{}, package = \"{}\"{}",
-                        &caps[1], new_name, &caps[3]
-                    ));
+                    if WORKSPACE_KEY.captures(&caps[3]).is_none() {
+                        new_lines.push(format!(
+                            "{}, package = \"{}\"{}",
+                            &caps[1], new_name, &caps[4]
+                        ));
+                    }
                 }
             }
 
@@ -389,17 +404,19 @@ pub fn change_versions(
             } else if let Some(caps) = DEP_OBJ_VERSION.captures(line) {
                 edit_version(caps, new_lines, versions, exact, 2)?;
             } else if let Some(caps) = DEP_OBJ_NAME.captures(line) {
-                if let Some(new_version) = versions.get(&caps[2]) {
-                    if exact {
-                        new_lines.push(format!(
-                            "{}, version = \"={}\"{}",
-                            &caps[1], new_version, &caps[3]
-                        ));
-                    } else {
-                        new_lines.push(format!(
-                            "{}, version = \"{}\"{}",
-                            &caps[1], new_version, &caps[3]
-                        ));
+                if WORKSPACE_KEY.captures(&caps[3]).is_none() {
+                    if let Some(new_version) = versions.get(&caps[2]) {
+                        if exact {
+                            new_lines.push(format!(
+                                "{}, version = \"={}\"{}",
+                                &caps[1], new_version, &caps[4]
+                            ));
+                        } else {
+                            new_lines.push(format!(
+                                "{}, version = \"{}\"{}",
+                                &caps[1], new_version, &caps[4]
+                            ));
+                        }
                     }
                 }
             }
@@ -609,7 +626,7 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "this", &v, false).unwrap(),
+            change_versions(m.into(), "another", &v, false).unwrap(),
             indoc! {r#"
                 [dependencies]
                 this = "0.3.0" # hello"#
@@ -647,7 +664,7 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "this", &v, false).unwrap(),
+            change_versions(m.into(), "another", &v, false).unwrap(),
             indoc! {r#"
                 [dependencies]
                 this = { path = "../", version = "0.3.0" } # hello"#
@@ -666,7 +683,7 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "this", &v, false).unwrap(),
+            change_versions(m.into(), "another", &v, false).unwrap(),
             indoc! {r#"
                 [dependencies]
                 this2 = { path = "../", version = "0.3.0", package = "this" } # hello"#
@@ -685,7 +702,7 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "this", &v, false).unwrap(),
+            change_versions(m.into(), "another", &v, false).unwrap(),
             indoc! {r#"
                 [dependencies]
                 this2 = { path = "../", package = "this", version = "0.3.0" } # hello"#
@@ -705,7 +722,7 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "this", &v, false).unwrap(),
+            change_versions(m.into(), "another", &v, false).unwrap(),
             indoc! {r#"
                 [dependencies.this]
                 path = "../"
@@ -773,12 +790,88 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "this", &v, false).unwrap(),
+            change_versions(m.into(), "another", &v, false).unwrap(),
             indoc! {r#"
                 [dependencies.this2]
                 path = "../"
                 package = "this"
                 version = "0.3.0" # hello"#
+            }
+        );
+    }
+
+    #[test]
+    fn test_version_target_dependencies() {
+        let m = indoc! {r#"
+            [target.x86_64-pc-windows-gnu.dependencies]
+            this = "0.0.1" # hello
+        "#};
+
+        let mut v = Map::new();
+        v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
+
+        assert_eq!(
+            change_versions(m.into(), "another", &v, false).unwrap(),
+            indoc! {r#"
+                [target.x86_64-pc-windows-gnu.dependencies]
+                this = "0.3.0" # hello"#
+            }
+        );
+    }
+
+    #[test]
+    fn test_version_target_cfg_dependencies() {
+        let m = indoc! {r#"
+            [target.'cfg(not(any(target_arch = "wasm32", target_os = "emscripten")))'.dependencies]
+            this = "0.0.1" # hello
+        "#};
+
+        let mut v = Map::new();
+        v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
+
+        assert_eq!(
+            change_versions(m.into(), "another", &v, false).unwrap(),
+            indoc! {r#"
+                [target.'cfg(not(any(target_arch = "wasm32", target_os = "emscripten")))'.dependencies]
+                this = "0.3.0" # hello"#
+            }
+        );
+    }
+
+    #[test]
+    fn test_version_ignore_workspace() {
+        let m = indoc! {r#"
+            [dependencies]
+            this = { workspace = true } # hello
+        "#};
+
+        let mut v = Map::new();
+        v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
+
+        assert_eq!(
+            change_versions(m.into(), "another", &v, false).unwrap(),
+            indoc! {r#"
+                [dependencies]
+                this = { workspace = true } # hello"#
+            }
+        );
+    }
+
+    #[test]
+    fn test_version_ignore_dotted_workspace() {
+        let m = indoc! {r#"
+            [dependencies]
+            this.workspace = true # hello
+        "#};
+
+        let mut v = Map::new();
+        v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
+
+        assert_eq!(
+            change_versions(m.into(), "another", &v, false).unwrap(),
+            indoc! {r#"
+                [dependencies]
+                this.workspace = true # hello"#
             }
         );
     }
@@ -794,7 +887,7 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "this", &v, true).unwrap(),
+            change_versions(m.into(), "another", &v, true).unwrap(),
             indoc! {r#"
                 [dependencies]
                 this = { path = "../", version = "=0.3.0" } # hello"#
@@ -851,7 +944,7 @@ mod test {
         v.insert("this".to_string(), "ra_this".to_string());
 
         assert_eq!(
-            rename_packages(m.into(), "this", &v).unwrap(),
+            rename_packages(m.into(), "another", &v).unwrap(),
             indoc! {r#"
                 [dependencies]
                 this = { version = "0.0.1", package = "ra_this" } # hello"#
@@ -870,7 +963,7 @@ mod test {
         v.insert("this".to_string(), "ra_this".to_string());
 
         assert_eq!(
-            rename_packages(m.into(), "this", &v).unwrap(),
+            rename_packages(m.into(), "another", &v).unwrap(),
             indoc! {r#"
                 [dependencies]
                 this = { path = "../", version = "0.0.1", package = "ra_this" } # hello"#
@@ -889,7 +982,7 @@ mod test {
         v.insert("this".to_string(), "ra_this".to_string());
 
         assert_eq!(
-            rename_packages(m.into(), "this", &v).unwrap(),
+            rename_packages(m.into(), "another", &v).unwrap(),
             indoc! {r#"
                 [dependencies]
                 this2 = { path = "../", version = "0.0.1", package = "ra_this" } # hello"#
@@ -908,7 +1001,7 @@ mod test {
         v.insert("this".to_string(), "ra_this".to_string());
 
         assert_eq!(
-            rename_packages(m.into(), "this", &v).unwrap(),
+            rename_packages(m.into(), "another", &v).unwrap(),
             indoc! {r#"
                 [dependencies]
                 this2 = { path = "../", package = "ra_this", version = "0.0.1" } # hello"#
@@ -928,7 +1021,7 @@ mod test {
         v.insert("this".to_string(), "ra_this".to_string());
 
         assert_eq!(
-            rename_packages(m.into(), "this", &v).unwrap(),
+            rename_packages(m.into(), "another", &v).unwrap(),
             indoc! {r#"
                 [dependencies.this]
                 path = "../"
@@ -951,7 +1044,7 @@ mod test {
         v.insert("this".to_string(), "ra_this".to_string());
 
         assert_eq!(
-            rename_packages(m.into(), "this", &v).unwrap(),
+            rename_packages(m.into(), "another", &v).unwrap(),
             indoc! {r#"
                 [dependencies.this2]
                 path = "../"
@@ -974,12 +1067,107 @@ mod test {
         v.insert("this".to_string(), "ra_this".to_string());
 
         assert_eq!(
-            rename_packages(m.into(), "this", &v).unwrap(),
+            rename_packages(m.into(), "another", &v).unwrap(),
             indoc! {r#"
                 [dependencies.this2]
                 path = "../"
                 package = "ra_this"
                 version = "0.0.1" # hello"#
+            }
+        );
+    }
+
+    #[test]
+    fn test_name_target_dependencies() {
+        let m = indoc! {r#"
+            [target.x86_64-pc-windows-gnu.dependencies]
+            this = "0.0.1" # hello
+        "#};
+
+        let mut v = Map::new();
+        v.insert("this".to_string(), "ra_this".to_string());
+
+        assert_eq!(
+            rename_packages(m.into(), "another", &v).unwrap(),
+            indoc! {r#"
+                [target.x86_64-pc-windows-gnu.dependencies]
+                this = { version = "0.0.1", package = "ra_this" } # hello"#
+            }
+        );
+    }
+
+    #[test]
+    fn test_name_target_cfg_dependencies() {
+        let m = indoc! {r#"
+            [target.'cfg(not(any(target_arch = "wasm32", target_os = "emscripten")))'.dependencies]
+            this = "0.0.1" # hello
+        "#};
+
+        let mut v = Map::new();
+        v.insert("this".to_string(), "ra_this".to_string());
+
+        assert_eq!(
+            rename_packages(m.into(), "another", &v).unwrap(),
+            indoc! {r#"
+                [target.'cfg(not(any(target_arch = "wasm32", target_os = "emscripten")))'.dependencies]
+                this = { version = "0.0.1", package = "ra_this" } # hello"#
+            }
+        );
+    }
+
+    #[test]
+    fn test_name_ignore_workspace() {
+        let m = indoc! {r#"
+            [dependencies]
+            this = { workspace = true } # hello
+        "#};
+
+        let mut v = Map::new();
+        v.insert("this".to_string(), "ra_this".to_string());
+
+        assert_eq!(
+            rename_packages(m.into(), "another", &v).unwrap(),
+            indoc! {r#"
+                [dependencies]
+                this = { workspace = true } # hello"#
+            }
+        );
+    }
+
+    #[test]
+    fn test_name_ignore_workspace_with_keys() {
+        let m = indoc! {r#"
+            [dependencies]
+            this = { workspace = true, optional = true } # hello
+        "#};
+
+        let mut v = Map::new();
+        v.insert("this".to_string(), "ra_this".to_string());
+
+        assert_eq!(
+            rename_packages(m.into(), "another", &v).unwrap(),
+            indoc! {r#"
+                [dependencies]
+                this = { workspace = true, optional = true } # hello"#
+            }
+        );
+    }
+
+    #[test]
+    fn test_name_ignore_dotted_workspace() {
+        let m = indoc! {r#"
+            [dependencies]
+            this.workspace = true # hello
+        "#};
+
+        let mut v = Map::new();
+        v.insert("this".to_string(), "ra_this".to_string());
+
+        assert_eq!(
+            rename_packages(m.into(), "another", &v).unwrap(),
+            indoc! {r#"
+                [dependencies]
+                this.workspace = true # hello"#
             }
         );
     }

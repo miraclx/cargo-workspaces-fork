@@ -78,6 +78,9 @@ pub enum Error {
     #[error("unable to update Cargo.lock")]
     Update,
 
+    #[error("{0} value must contain '%n'")]
+    MustContainPercentN(String),
+
     #[error("unable to create crate")]
     Create,
 
@@ -127,6 +130,8 @@ pub enum Error {
     #[error("{0}")]
     Glob(#[from] glob::PatternError),
     #[error("{0}")]
+    Globset(#[from] globset::Error),
+    #[error("{0}")]
     Serde(#[from] serde_json::Error),
     #[error("{0}")]
     Io(#[from] io::Error),
@@ -146,6 +151,9 @@ impl CliError for Error {
             },
             Self::Verify(pkg) => Self::Verify(format!("{}", ERR_YELLOW.apply_to(pkg))),
             Self::Publish(pkg) => Self::Publish(format!("{}", ERR_YELLOW.apply_to(pkg))),
+            Self::MustContainPercentN(val) => {
+                Self::MustContainPercentN(format!("{}", ERR_YELLOW.apply_to(val)))
+            }
             Self::WorkspaceRootNotDir(path) => {
                 Self::WorkspaceRootNotDir(format!("{}", ERR_YELLOW.apply_to(path)))
             }

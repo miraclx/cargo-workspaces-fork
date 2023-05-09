@@ -27,11 +27,11 @@ pub struct ListOpt {
     #[clap(long, conflicts_with = "long")]
     pub json: bool,
 
-    /// Comma separated list of crate groups to list from
+    /// Comma separated list of crate groups to deal with
     #[clap(
         long,
         multiple_occurrences = true,
-        use_delimiter = true,
+        use_value_delimiter = true,
         number_of_values = 1
     )]
     pub groups: Vec<GroupName>,

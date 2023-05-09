@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.2.36
+
+### Enhancements
+* Improve the glob pattern support allowed in arguments of subcommands
+
+## 0.2.35
+
+### Enhancements
+* Allow renaming single crates
+
+## 0.2.34
+
+### Enhancements
+* Added `registry` flag to `publish` subcommand
+
+## 0.2.33
+
+### Bug Fixes
+* Support target dependencies when changing version and renaming packages
+
+## 0.2.30
+
+### Bug Fixes
+* Remove some flakiness in detecting git command success
+
+## 0.2.29
+
+### Enhancements
+* Added `lib`, `bin` flags to `create` subcommand
+* Added `edition`, `name` options to `create` subcommand
+
 ## 0.2.28
 
 ### Enhancements

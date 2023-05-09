@@ -3,13 +3,19 @@ use crate::utils::{
 };
 
 use camino::Utf8PathBuf;
-use clap::{ArgSettings, Parser};
-use glob::Pattern;
+use clap::Parser;
+use globset::Glob;
 use semver::Version;
 
-use std::{collections::BTreeMap as Map, process::Command};
+use std::{
+    collections::BTreeMap as Map,
+    process::{Command, ExitStatus},
+};
 
-pub fn git<'a>(root: &Utf8PathBuf, args: &[&'a str]) -> Result<(String, String), Error> {
+pub fn git<'a>(
+    root: &Utf8PathBuf,
+    args: &[&'a str],
+) -> Result<(ExitStatus, String, String), Error> {
     debug!("git", args.to_vec().join(" "));
 
     let output = Command::new("git")
@@ -22,12 +28,14 @@ pub fn git<'a>(root: &Utf8PathBuf, args: &[&'a str]) -> Result<(String, String),
         })?;
 
     Ok((
+        output.status,
         String::from_utf8(output.stdout)?.trim().to_owned(),
         String::from_utf8(output.stderr)?.trim().to_owned(),
     ))
 }
 
 #[derive(Debug, Parser)]
+#[clap(next_help_heading = "GIT OPTIONS")]
 pub struct GitOpt {
     /// Do not commit version changes
     #[clap(long, conflicts_with_all = &[
@@ -37,19 +45,19 @@ pub struct GitOpt {
     pub no_git_commit: bool,
 
     /// Specify which branches to allow from [default: master]
-    #[clap(long, value_name = "pattern", setting(ArgSettings::ForbidEmptyValues))]
+    #[clap(long, value_name = "pattern", forbid_empty_values(true))]
     pub allow_branch: Option<String>,
 
     /// Amend the existing commit, instead of generating a new one
     #[clap(long)]
     pub amend: bool,
 
-    /// Use a custom commit message when creating the version commit
+    /// Use a custom commit message when creating the version commit [default: Release %v]
     #[clap(
         short,
         long,
         conflicts_with_all = &["amend"],
-        setting(ArgSettings::ForbidEmptyValues)
+        forbid_empty_values(true)
     )]
     pub message: Option<String>,
 
@@ -58,7 +66,7 @@ pub struct GitOpt {
     pub no_git_tag: bool,
 
     /// Always tag the most recent commit, even when we don't create one
-    #[clap(long, conflicts_with_all = &["no_git_tag"])]
+    #[clap(long, conflicts_with_all = &["no-git-tag"])]
     pub tag_existing: bool,
 
     /// Do not tag individual versions for crates
@@ -83,7 +91,7 @@ pub struct GitOpt {
         default_value = "%n@",
         value_name = "prefix",
         validator = validate_value_containing_name,
-        setting(ArgSettings::ForbidEmptyValues)
+        forbid_empty_values(true)
     )]
     pub individual_tag_prefix: String,
 
@@ -104,7 +112,7 @@ pub struct GitOpt {
         long,
         default_value = "origin",
         value_name = "remote",
-        setting(ArgSettings::ForbidEmptyValues)
+        forbid_empty_values(true)
     )]
     pub git_remote: String,
 }
@@ -118,7 +126,7 @@ impl GitOpt {
         let mut ret = None;
 
         if !self.no_git_commit {
-            let (out, err) = git(root, &["rev-list", "--count", "--all", "--max-count=1"])?;
+            let (_, out, err) = git(root, &["rev-list", "--count", "--all", "--max-count=1"])?;
 
             if err.contains("not a git repository") {
                 return Err(Error::NotGit);
@@ -128,7 +136,7 @@ impl GitOpt {
                 return Err(Error::NoCommits);
             }
 
-            let (branch, _) = git(root, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+            let (_, branch, _) = git(root, &["rev-parse", "--abbrev-ref", "HEAD"])?;
 
             if branch == "HEAD" {
                 return Err(Error::NotBranch);
@@ -152,19 +160,19 @@ impl GitOpt {
                 branch.clone()
             };
 
-            let pattern = Pattern::new(&allow_branch)?;
+            let pattern = Glob::new(&allow_branch)?;
 
-            if !pattern.matches(&test_branch) {
+            if !pattern.compile_matcher().is_match(&test_branch) {
                 return Err(Error::BranchNotAllowed {
                     branch,
-                    pattern: pattern.as_str().to_string(),
+                    pattern: pattern.glob().to_string(),
                 });
             }
 
             if !self.no_git_push {
                 let remote_branch = format!("{}/{}", self.git_remote, branch);
 
-                let (out, _) = git(
+                let (_, out, _) = git(
                     root,
                     &[
                         "show-ref",
@@ -182,7 +190,7 @@ impl GitOpt {
 
                 git(root, &["remote", "update"])?;
 
-                let (out, _) = git(
+                let (_, out, _) = git(
                     root,
                     &[
                         "rev-list",
@@ -215,11 +223,10 @@ impl GitOpt {
         if !self.no_git_commit {
             info!("version", "committing changes");
 
-            let branch = branch.as_ref().expect(INTERNAL_ERR);
             let added = git(root, &["add", "-u"])?;
 
-            if !added.0.is_empty() || !added.1.is_empty() {
-                return Err(Error::NotAdded(added.0, added.1));
+            if !added.0.success() {
+                return Err(Error::NotAdded(added.1, added.2));
             }
 
             let mut args = vec!["commit".to_string()];
@@ -250,8 +257,8 @@ impl GitOpt {
 
             let committed = git(root, &args.iter().map(|x| x.as_str()).collect::<Vec<_>>())?;
 
-            if !committed.0.contains(branch) || !committed.1.is_empty() {
-                return Err(Error::NotCommitted(committed.0, committed.1));
+            if !committed.0.success() {
+                return Err(Error::NotCommitted(committed.1, committed.2));
             }
         }
 
@@ -314,8 +321,8 @@ impl GitOpt {
 
             let pushed = git(root, &["push", "--follow-tags", &self.git_remote, &branch])?;
 
-            if !pushed.0.is_empty() || !pushed.1.starts_with("To") {
-                return Err(Error::NotPushed(pushed.0, pushed.1));
+            if !pushed.0.success() {
+                return Err(Error::NotPushed(pushed.1, pushed.2));
             }
         }
 
@@ -323,7 +330,7 @@ impl GitOpt {
     }
 
     fn tag(&self, root: &Utf8PathBuf, tag: &str, msgs: &[String]) -> Result<(), Error> {
-        let (tags, _) = git(root, &["tag"])?;
+        let (_, tags, _) = git(root, &["tag"])?;
         if let None = tags.split("\n").find(|existing_tag| &tag == existing_tag) {
             let mut args = vec!["tag", tag, "-a"];
             for msg in msgs {
@@ -331,8 +338,8 @@ impl GitOpt {
             }
             let tagged = git(root, &args)?;
 
-            if !tagged.0.is_empty() || !tagged.1.is_empty() {
-                return Err(Error::NotTagged(tag.to_string(), tagged.0, tagged.1));
+            if !tagged.0.success() {
+                return Err(Error::NotTagged(tag.to_string(), tagged.1, tagged.2));
             }
         } else {
             info!("version", "tag already exists");

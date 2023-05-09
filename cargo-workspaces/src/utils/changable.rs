@@ -3,7 +3,7 @@ use crate::utils::{
 };
 use cargo_metadata::Metadata;
 use clap::Parser;
-use glob::{Pattern, PatternError};
+use globset::{Error as GlobsetError, Glob};
 use regex::Regex;
 use semver::Version;
 use std::path::Path;
@@ -41,7 +41,7 @@ impl ChangeData {
             args.push("--first-parent");
         }
 
-        let (description, _) = git(&metadata.workspace_root, &args)?;
+        let (_, description, _) = git(&metadata.workspace_root, &args)?;
 
         let sha_regex = Regex::new("^([0-9a-f]{7,40})(-dirty)?$").expect(INTERNAL_ERR);
         let tag_regex =
@@ -55,7 +55,7 @@ impl ChangeData {
             ret.sha = caps.get(1).expect(INTERNAL_ERR).as_str().to_string();
             ret.dirty = caps.get(2).is_some();
 
-            let (count, _) = git(&metadata.workspace_root, &["rev-list", "--count", &ret.sha])?;
+            let (_, count, _) = git(&metadata.workspace_root, &["rev-list", "--count", &ret.sha])?;
 
             ret.count = count;
         } else if tag_regex.is_match(&description) {
@@ -93,7 +93,7 @@ impl ChangeOpt {
         let pkgs = if let Some(since) = since {
             info!("looking for changes since", since);
 
-            let (changed_files, _) = git(
+            let (_, changed_files, _) = git(
                 &metadata.workspace_root,
                 &["diff", "--name-only", "--relative", since],
             )?;
@@ -102,19 +102,19 @@ impl ChangeOpt {
             let force = self
                 .force
                 .clone()
-                .map(|x| Pattern::new(&x))
-                .map_or::<Result<_, PatternError>, _>(Ok(None), |x| Ok(x.ok()))?;
+                .map(|x| Glob::new(&x))
+                .map_or::<Result<_, GlobsetError>, _>(Ok(None), |x| Ok(x.ok()))?;
             let ignore_changes = self
                 .ignore_changes
                 .clone()
-                .map(|x| Pattern::new(&x))
-                .map_or::<Result<_, PatternError>, _>(Ok(None), |x| Ok(x.ok()))?;
+                .map(|x| Glob::new(&x))
+                .map_or::<Result<_, GlobsetError>, _>(Ok(None), |x| Ok(x.ok()))?;
 
             workspace_groups
                 .into_iter()
                 .partition(|((group_name, _), p)| {
                     if let Some(pattern) = &force {
-                        if pattern.matches(&p.name) {
+                        if pattern.compile_matcher().is_match(&p.name) {
                             return true;
                         }
                     }
@@ -125,7 +125,10 @@ impl ChangeOpt {
 
                     changed_files.iter().any(|f| {
                         if let Some(pattern) = &ignore_changes {
-                            if pattern.matches(f.to_str().expect(INTERNAL_ERR)) {
+                            if pattern
+                                .compile_matcher()
+                                .is_match(f.to_str().expect(INTERNAL_ERR))
+                            {
                                 return false;
                             }
                         }

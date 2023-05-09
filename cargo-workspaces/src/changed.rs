@@ -1,9 +1,9 @@
 use crate::utils::{
-    read_config, ChangeData, ChangeOpt, GroupName, ListOpt, Listable, Result, WorkspaceConfig,
+    read_config, ChangeData, ChangeOpt, ListOpt, Listable, Result, WorkspaceConfig,
 };
 
 use cargo_metadata::Metadata;
-use clap::{ArgSettings, Parser};
+use clap::Parser;
 use oclif::term::TERM_OUT;
 
 /// List crates that have changed since the last tagged release
@@ -19,18 +19,9 @@ pub struct Changed {
     #[clap(
         long,
         conflicts_with = "include-merged-tags",
-        setting(ArgSettings::ForbidEmptyValues)
+        forbid_empty_values(true)
     )]
     since: Option<String>,
-
-    /// Comma separated list of crate groups to check
-    #[clap(
-        long,
-        multiple_occurrences = true,
-        use_delimiter = true,
-        number_of_values = 1
-    )]
-    pub groups: Vec<GroupName>,
 }
 
 impl Changed {
@@ -53,7 +44,7 @@ impl Changed {
             &metadata,
             &config,
             &since,
-            &self.groups[..],
+            &self.list.groups[..],
             self.list.all,
         )?;
 
