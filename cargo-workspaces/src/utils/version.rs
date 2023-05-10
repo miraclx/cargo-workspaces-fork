@@ -499,13 +499,13 @@ impl VersionOpt {
 
         let prompt = match (group, pkg_name) {
             (GroupName::Custom(group_name), Some(name)) => {
-                format!("for {} in group:{} ", name, group_name)
+                format!("for {} in the group `{}` ", name, group_name)
             }
             (GroupName::Custom(group_name), None) => {
-                format!("for group:{} ", group_name)
+                format!("for the group `{}` ", group_name)
             }
             (_, Some(name)) => format!("for {} ", name),
-            (_, None) => "".to_string(),
+            (_, None) => "for the workspace ".to_string(),
         };
 
         let theme = ColorfulTheme::default();
