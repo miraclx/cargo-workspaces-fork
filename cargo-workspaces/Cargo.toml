@@ -40,6 +40,7 @@ indexmap = "1.6.0"
 crates-index = "0.19.7"
 dunce = "1.0.1"
 ctrlc = "3.2.5"
+toml = "0.7.3"
 
 [dev-dependencies]
 assert_cmd = "1.0"

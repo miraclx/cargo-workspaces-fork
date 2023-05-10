@@ -2,10 +2,11 @@ use crate::utils::{
     read_config, Error, ListOpt, Listable, PackageConfig, Result, WorkspaceConfig, INTERNAL_ERR,
 };
 
+use camino::Utf8PathBuf;
 use cargo_metadata::{Metadata, PackageId};
 use oclif::{console::style, term::TERM_OUT, CliError};
 use semver::Version;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use std::{
     borrow::Borrow,
@@ -28,6 +29,8 @@ pub struct Pkg {
     pub private: bool,
     #[serde(skip)]
     pub config: PackageConfig,
+    #[serde(skip)]
+    pub manifest_path: Utf8PathBuf,
 }
 
 impl Listable for Vec<(GroupName, Pkg)> {
@@ -221,16 +224,16 @@ pub fn get_group_packages(
                 continue;
             }
 
-            let loc = pkg.manifest_path.strip_prefix(&metadata.workspace_root);
+            let loc = match pkg.manifest_path.strip_prefix(&metadata.workspace_root) {
+                Ok(loc) => loc,
+                Err(_) => {
+                    return Err(Error::PackageNotInWorkspace {
+                        id: pkg.id.repr.clone(),
+                        ws: metadata.workspace_root.to_string(),
+                    })
+                }
+            };
 
-            if loc.is_err() {
-                return Err(Error::PackageNotInWorkspace {
-                    id: pkg.id.repr.clone(),
-                    ws: metadata.workspace_root.to_string(),
-                });
-            }
-
-            let loc = loc.expect(INTERNAL_ERR);
             let loc = if loc.is_file() {
                 loc.parent().expect(INTERNAL_ERR)
             } else {
@@ -245,6 +248,7 @@ pub fn get_group_packages(
                 path: loc.into(),
                 private,
                 config: read_config(&pkg.metadata)?,
+                manifest_path: pkg.manifest_path.clone(),
             };
 
             let (group_name, group_version) = 'found_group: loop {
@@ -274,6 +278,25 @@ pub fn get_group_packages(
                     }
                 }
 
+                if let Ok(manifest) =
+                    toml::from_str::<CrateManifest>(&std::fs::read_to_string(&pkg.manifest_path)?)
+                {
+                    if let CrateManifestPackageEntryVersion::Table { .. } = manifest.package.version
+                    {
+                        if !matched_groups.is_empty() {
+                            return Err(Error::PackageExistsInMultipleGroups {
+                                name: pkg.name,
+                                rel_path: pkg.path.display().to_string(),
+                                inherits: true,
+                                groups: matched_groups
+                                    .into_iter()
+                                    .map(|(group_name, _)| group_name)
+                                    .collect(),
+                            });
+                        }
+                    }
+                }
+
                 break 'found_group match matched_groups.len() {
                     0 => (GroupName::Default, workspace_config.version.clone()),
                     1 => matched_groups.remove(0),
@@ -281,6 +304,7 @@ pub fn get_group_packages(
                         return Err(Error::PackageExistsInMultipleGroups {
                             name: pkg.name,
                             rel_path: pkg.path.display().to_string(),
+                            inherits: false,
                             groups: matched_groups
                                 .into_iter()
                                 .map(|(group_name, _)| group_name)
@@ -313,4 +337,36 @@ pub fn get_group_packages(
         .values_mut()
         .for_each(|(_, pkgs)| pkgs.sort());
     Ok(pkg_groups)
+}
+
+#[derive(Deserialize)]
+struct CrateManifest {
+    package: CrateManifestPackageEntry,
+}
+
+#[derive(Deserialize)]
+struct CrateManifestPackageEntry {
+    version: CrateManifestPackageEntryVersion,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum CrateManifestPackageEntryVersion {
+    String(String),
+    Table {
+        #[serde(
+            rename = "workspace",
+            deserialize_with = "validate_workspace_version_value"
+        )]
+        _workspace: (),
+    },
+}
+
+fn validate_workspace_version_value<'de, D>(d: D) -> std::result::Result<(), D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    bool::deserialize(d)?
+        .then(|| ())
+        .ok_or_else(|| serde::de::Error::invalid_value(serde::de::Unexpected::Bool(false), &"true"))
 }

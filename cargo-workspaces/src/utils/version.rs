@@ -186,28 +186,50 @@ impl VersionOpt {
 
         let (new_version, new_versions) = self.confirm_versions(bumped_pkgs)?;
 
-        for p in &metadata.packages {
-            if new_versions.get(&p.name).is_none()
-                && p.dependencies
-                    .iter()
-                    .all(|x| new_versions.get(&x.name).is_none())
-            {
-                continue;
+        {
+            let mut new_versions = new_versions
+                .clone()
+                .into_iter()
+                .map(|(p, (_, v))| (p, v))
+                .collect::<Map<_, _>>();
+
+            if let Some(version) = &new_version {
+                new_versions.insert("<workspace>".to_string(), version.clone());
             }
 
+            for p in &metadata.packages {
+                if new_versions.get(&p.name).is_none()
+                    && p.dependencies
+                        .iter()
+                        .all(|x| new_versions.get(&x.name).is_none())
+                {
+                    continue;
+                }
+
+                fs::write(
+                    &p.manifest_path,
+                    format!(
+                        "{}\n",
+                        change_versions(
+                            fs::read_to_string(&p.manifest_path)?,
+                            &p.name,
+                            &new_versions,
+                            self.exact,
+                        )?
+                    ),
+                )?;
+            }
+
+            let workspace_root = metadata.workspace_root.join("Cargo.toml");
             fs::write(
-                &p.manifest_path,
+                &workspace_root,
                 format!(
                     "{}\n",
                     change_versions(
-                        fs::read_to_string(&p.manifest_path)?,
-                        &p.name,
-                        &new_versions
-                            .clone()
-                            .into_iter()
-                            .map(|(p, (_, v))| (p, v))
-                            .collect(),
-                        self.exact,
+                        fs::read_to_string(&workspace_root)?,
+                        "<workspace>",
+                        &new_versions,
+                        self.exact
                     )?
                 ),
             )?;
@@ -262,11 +284,8 @@ impl VersionOpt {
         );
 
         let default_group = changed_pkg_groups.remove_entry(&GroupName::Default);
-        let remaining_groups = changed_pkg_groups
-            .into_iter()
-            .filter(|(group, _)| !matches!(group, GroupName::Default));
 
-        for (group_name, (group_ver, pkgs)) in default_group.into_iter().chain(remaining_groups) {
+        for (group_name, (group_ver, pkgs)) in default_group.into_iter().chain(changed_pkg_groups) {
             let (common_version, new_group_version, new_versions) = loop {
                 match bumped_pkgs.get_mut(&group_name) {
                     Some(pkg) => break pkg,
@@ -415,12 +434,8 @@ impl VersionOpt {
             .as_ref()
             .and_then(|(_, (_, group_version, _))| group_version.clone());
 
-        let remaining_groups = bumped_pkgs
-            .into_iter()
-            .filter(|(group, _)| !matches!(group, GroupName::Default));
-
         for (group, (grp_common_version, _, versions)) in
-            default_group.into_iter().chain(remaining_groups)
+            default_group.into_iter().chain(bumped_pkgs)
         {
             if versions.is_empty() {
                 continue;

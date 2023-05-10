@@ -56,10 +56,19 @@ pub enum Error {
     PackageNotInWorkspace { id: String, ws: String },
     #[error("unable to find package {id}")]
     PackageNotFound { id: String },
-    #[error("the package {name} ({rel_path}) was matched in multiple groups: {}", .groups.join(", "))]
+    #[error(
+        "the package {name} ({rel_path}) {note}: {}",
+        .groups.join(", "),
+        note = if *.inherits {
+            "which inherits the workspace version is also included in these groups"
+        } else {
+            "was matched in multiple groups"
+        }
+    )]
     PackageExistsInMultipleGroups {
         name: String,
         rel_path: String,
+        inherits: bool,
         groups: Vec<GroupName>,
     },
     #[error("did not find any package")]
