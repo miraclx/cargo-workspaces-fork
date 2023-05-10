@@ -158,25 +158,32 @@ impl VersionOpt {
 
         let mut unversioned_deps = HashMap::new();
 
-        for (_, (_, _, new_versions)) in &bumped_pkgs {
-            for (p, new_version, _) in new_versions.iter() {
-                let pkg = metadata
-                    .packages
-                    .iter()
-                    .find(|x| x.name == p.name)
-                    .expect(INTERNAL_ERR);
+        let new_versions = bumped_pkgs
+            .iter()
+            .flat_map(|(_, (_, _, nv))| {
+                nv.iter()
+                    .map(|(pkg, ver, _)| (pkg.name.clone(), ver.clone()))
+            })
+            .collect::<Vec<_>>();
 
-                for dep in pkg.dependencies.iter() {
-                    if let Some((_, v, _)) =
-                        new_versions.iter().find(|(x, _, _)| x.name == dep.name)
-                    {
-                        if is_unversioned(&dep.req) && !is_unversioned(new_version) {
-                            unversioned_deps
-                                .entry(pkg.id.repr.as_str())
-                                .or_insert_with(|| (pkg.name.as_str(), vec![]))
-                                .1
-                                .push((dep.name.as_str(), &dep.req, v));
-                        }
+        for (pkg_name, new_version) in &new_versions {
+            let pkg = metadata
+                .packages
+                .iter()
+                .find(|cargo_pkg| pkg_name == &cargo_pkg.name)
+                .expect(INTERNAL_ERR);
+
+            for dep in pkg.dependencies.iter() {
+                if let Some((_, pkg_ver)) = new_versions
+                    .iter()
+                    .find(|(pkg_name, _)| pkg_name == &dep.name)
+                {
+                    if is_unversioned(&dep.req) && !is_unversioned(new_version) {
+                        unversioned_deps
+                            .entry(pkg.id.repr.as_str())
+                            .or_insert_with(|| (pkg.name.as_str(), vec![]))
+                            .1
+                            .push((dep.name.as_str(), &dep.req, pkg_ver));
                     }
                 }
             }
