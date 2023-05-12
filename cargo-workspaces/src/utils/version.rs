@@ -450,12 +450,11 @@ impl VersionOpt {
                     let mut items = vec![];
                     for (name, deps) in pkgs.values() {
                         items.push(format!(" │ {}", style(name).green()));
-                        for (dep, ver, new_ver) in deps {
+                        for (dep, _, new_ver) in deps {
+                            items.push(format!(" │  \u{21b3} {}:", style(dep).cyan()));
                             items.push(format!(
-                                " │ \u{21b3} {}: {} => {}",
-                                style(dep).cyan(),
-                                style(ver).yellow(),
-                                style(new_ver).green()
+                                " │     \u{21b3} +{}",
+                                style(format!("version = \"{}\"", new_ver)).green()
                             ));
                         }
                     }
@@ -465,7 +464,7 @@ impl VersionOpt {
                         .default(0)
                         .clear(true)
                         .report(false)
-                        .max_length(10)
+                        .max_length(15)
                         .interact_on_opt(&TERM_ERR)?;
                 }
             }
