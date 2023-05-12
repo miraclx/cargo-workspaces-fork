@@ -13,7 +13,7 @@ use oclif::{
 use semver::{Identifier, Version, VersionReq};
 
 use std::{
-    collections::{BTreeMap as Map, HashMap},
+    collections::{BTreeMap as Map, HashMap, HashSet},
     fs,
     process::exit,
 };
@@ -193,54 +193,93 @@ impl VersionOpt {
 
         let (new_version, new_versions) = self.confirm_versions(bumped_pkgs)?;
 
-        {
-            let mut new_versions = new_versions
-                .clone()
-                .into_iter()
-                .map(|(p, (_, v))| (p, v))
+        let mut new_versions_root = Map::new();
+        if let Some(version) = &new_version {
+            new_versions_root.insert("<workspace>".to_string(), version.clone());
+        }
+
+        for p in &metadata.packages {
+            let deps = p
+                .dependencies
+                .iter()
+                .filter_map(|dep| {
+                    dep.path.as_ref().and(new_versions.get(&dep.name).map(|_| {
+                        (
+                            dep.rename.as_ref().unwrap_or(&dep.name).clone(),
+                            dep.name.clone(),
+                        )
+                    }))
+                })
+                .collect::<HashMap<_, _>>();
+
+            if new_versions.get(&p.name).is_none()
+                && deps
+                    .iter()
+                    .all(|(_key, pkg_name)| new_versions.get(pkg_name).is_none())
+            {
+                continue;
+            }
+
+            if let Some((_, version)) = new_versions.get(&p.name) {
+                new_versions_root.insert(p.name.clone(), version.clone());
+            }
+
+            let mut new_versions_sub = deps
+                .iter()
+                .map(|(key, pkg_name)| {
+                    (
+                        key.clone(),
+                        new_versions.get(pkg_name).expect(INTERNAL_ERR).1.clone(),
+                    )
+                })
                 .collect::<Map<_, _>>();
 
-            if let Some(version) = &new_version {
-                new_versions.insert("<workspace>".to_string(), version.clone());
+            if let Some((_, version)) = new_versions.get(&p.name) {
+                new_versions_sub.insert(p.name.clone(), version.clone());
             }
 
-            for p in &metadata.packages {
-                if new_versions.get(&p.name).is_none()
-                    && p.dependencies
-                        .iter()
-                        .all(|x| new_versions.get(&x.name).is_none())
-                {
-                    continue;
-                }
+            let mut inherited_pkgs = HashSet::new();
 
-                fs::write(
-                    &p.manifest_path,
-                    format!(
-                        "{}\n",
-                        change_versions(
-                            fs::read_to_string(&p.manifest_path)?,
-                            &p.name,
-                            &new_versions,
-                            self.exact,
-                        )?
-                    ),
-                )?;
-            }
-
-            let workspace_root = metadata.workspace_root.join("Cargo.toml");
             fs::write(
-                &workspace_root,
+                &p.manifest_path,
                 format!(
                     "{}\n",
                     change_versions(
-                        fs::read_to_string(&workspace_root)?,
-                        "<workspace>",
-                        &new_versions,
-                        self.exact
+                        fs::read_to_string(&p.manifest_path)?,
+                        &p.name,
+                        &new_versions_sub,
+                        self.exact,
+                        &mut inherited_pkgs,
                     )?
                 ),
             )?;
+
+            new_versions_root.extend(
+                inherited_pkgs
+                    .into_iter()
+                    .filter_map(|pkg_name| {
+                        new_versions_sub
+                            .get(&pkg_name)
+                            .map(|version| (pkg_name, version.clone()))
+                    })
+                    .collect::<Map<_, _>>(),
+            );
         }
+
+        let workspace_root = metadata.workspace_root.join("Cargo.toml");
+        fs::write(
+            &workspace_root,
+            format!(
+                "{}\n",
+                change_versions(
+                    fs::read_to_string(&workspace_root)?,
+                    "<workspace>",
+                    &new_versions_root,
+                    self.exact,
+                    &mut HashSet::new(),
+                )?
+            ),
+        )?;
 
         for pkg in new_versions.keys() {
             let output = cargo(&metadata.workspace_root, &["update", "-p", pkg], &[])?;

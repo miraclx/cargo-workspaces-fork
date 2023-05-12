@@ -6,7 +6,10 @@ use dialoguer::{theme::ColorfulTheme, Input, Select};
 use oclif::term::TERM_ERR;
 use semver::Version;
 
-use std::{collections::BTreeMap as Map, fs};
+use std::{
+    collections::{BTreeMap as Map, HashSet},
+    fs,
+};
 
 #[derive(Debug, Clone, ArgEnum)]
 enum Edition {
@@ -114,7 +117,13 @@ impl Create {
 
         fs::write(
             &manifest,
-            change_versions(fs::read_to_string(&manifest)?, &name, &versions, false)?,
+            change_versions(
+                fs::read_to_string(&manifest)?,
+                &name,
+                &versions,
+                false,
+                &mut HashSet::new(),
+            )?,
         )?;
 
         // TODO: If none of the globs in workspace `members` match, add a new entry
