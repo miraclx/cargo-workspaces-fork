@@ -281,8 +281,20 @@ impl VersionOpt {
             ),
         )?;
 
-        for pkg in new_versions.keys() {
-            let output = cargo(&metadata.workspace_root, &["update", "-p", pkg], &[])?;
+        for (pkg_name, (p, _)) in &new_versions {
+            let output = cargo(
+                &metadata.workspace_root,
+                &[
+                    "update",
+                    "-p",
+                    &format!(
+                        "file://{}#{}",
+                        p.path.canonicalize().expect(INTERNAL_ERR).display(),
+                        pkg_name
+                    ),
+                ],
+                &[],
+            )?;
 
             if output.1.contains("error:") {
                 return Err(Error::Update);
