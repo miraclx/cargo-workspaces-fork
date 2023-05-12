@@ -732,6 +732,32 @@ mod test {
     }
 
     #[test]
+    #[ignore = "multi-line object entries are not supported yet"]
+    fn test_version_dependencies_object_multiline() {
+        let m = indoc! {r#"
+            [dependencies]
+            this = { path = "../", features = [
+                "foo",
+                "bar"
+            ], version = "0.0.1" } # hello
+        "#};
+
+        let mut v = Map::new();
+        v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
+
+        assert_eq!(
+            change_versions(m.into(), "another", &v, false, &mut HashSet::new()).unwrap(),
+            indoc! {r#"
+                [dependencies]
+                this = { path = "../", features = [
+                    "foo",
+                    "bar"
+                ], version = "0.3.0" } # hello"#
+            }
+        );
+    }
+
+    #[test]
     fn test_version_dependencies_object_renamed() {
         let m = indoc! {r#"
             [dependencies]
