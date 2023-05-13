@@ -1,11 +1,10 @@
 use crate::utils;
 
-use glob::Pattern;
 use semver::Version;
 use serde::{de, Deserialize};
 use serde_json::{from_value, Value};
 
-use std::fmt;
+use std::{fmt, path::Path};
 
 #[derive(Deserialize, Default)]
 struct MetadataWorkspaces<T> {
@@ -27,23 +26,49 @@ pub struct PackageConfig {
     pub independent: Option<bool>,
 }
 
-#[derive(Deserialize, Debug, Clone, Ord, Eq, PartialOrd, PartialEq)]
+#[derive(Deserialize, Debug)]
 pub struct WorkspaceGroupSpec {
     #[serde(deserialize_with = "validate_group_name")]
     pub name: String,
     pub version: Option<Version>,
     #[serde(deserialize_with = "deserialize_members")]
-    pub members: Vec<Pattern>,
+    pub members: Vec<GroupMember>,
 }
 
-#[derive(Deserialize, Debug, Clone, Ord, Eq, PartialOrd, PartialEq)]
+#[derive(Deserialize, Debug)]
 #[serde(transparent)]
 pub struct ExcludeSpec {
     #[serde(deserialize_with = "deserialize_members")]
-    pub members: Vec<Pattern>,
+    pub members: Vec<GroupMember>,
 }
 
-#[derive(Deserialize, Default, Debug, Clone, Ord, Eq, PartialOrd, PartialEq)]
+pub struct GroupMember {
+    pub paths_fn: Box<dyn Fn() -> glob::Paths>,
+    pub pattern: String,
+}
+
+impl fmt::Debug for GroupMember {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("GroupMember").field(&self.pattern).finish()
+    }
+}
+
+impl GroupMember {
+    pub fn matches(&self, path: &Path) -> bool {
+        if let Ok(path) = path.canonicalize() {
+            for entry in (self.paths_fn)() {
+                if let Ok(entry) = entry {
+                    if let Ok(entry) = entry.canonicalize() {
+                        return entry == path;
+                    }
+                }
+            }
+        }
+        false
+    }
+}
+
+#[derive(Deserialize, Default, Debug)]
 pub struct WorkspaceConfig {
     pub version: Option<Version>,
     pub exclude: Option<ExcludeSpec>,
@@ -68,14 +93,14 @@ where
     Ok(group_name)
 }
 
-fn deserialize_members<'de, D>(deserializer: D) -> Result<Vec<Pattern>, D::Error>
+fn deserialize_members<'de, D>(deserializer: D) -> Result<Vec<GroupMember>, D::Error>
 where
     D: de::Deserializer<'de>,
 {
     struct MembersVisitor;
 
     impl<'de> de::Visitor<'de> for MembersVisitor {
-        type Value = Vec<Pattern>;
+        type Value = Vec<GroupMember>;
 
         fn expecting(&self, fmt: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
             fmt.write_str("a list of glob patterns matching paths to workspace members")
@@ -85,7 +110,11 @@ where
             let mut vec = Vec::with_capacity(seq.size_hint().unwrap_or(0));
 
             while let Some(elem) = seq.next_element::<String>()? {
-                vec.push(Pattern::new(&elem).map_err(de::Error::custom)?);
+                glob::Pattern::new(&elem).map_err(de::Error::custom)?;
+                vec.push(GroupMember {
+                    pattern: elem.clone(),
+                    paths_fn: Box::new(move || glob::glob(&elem).expect(utils::INTERNAL_ERR)),
+                });
             }
 
             Ok(vec)
