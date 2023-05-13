@@ -1,6 +1,6 @@
 use crate::utils::{
     cargo, change_versions, is_unversioned, read_config, ChangeData, ChangeOpt, Error, GitOpt,
-    GroupName, Pkg, Result, WorkspaceConfig, INTERNAL_ERR,
+    GroupName, ManifestDiscriminant, Pkg, Result, WorkspaceConfig, INTERNAL_ERR,
 };
 
 use cargo_metadata::Metadata;
@@ -198,6 +198,8 @@ impl VersionOpt {
             new_versions_root.insert("<workspace>".to_string(), version.clone());
         }
 
+        let workspace_root = metadata.workspace_root.join("Cargo.toml");
+
         for p in &metadata.packages {
             let deps = p
                 .dependencies
@@ -236,6 +238,10 @@ impl VersionOpt {
 
             if let Some((_, version)) = new_versions.get(&p.name) {
                 new_versions_sub.insert(p.name.clone(), version.clone());
+
+                if p.manifest_path == workspace_root {
+                    new_versions_root.insert("<workspace>".to_string(), version.clone());
+                }
             }
 
             let mut inherited_pkgs = HashSet::new();
@@ -248,6 +254,7 @@ impl VersionOpt {
                         fs::read_to_string(&p.manifest_path)?,
                         &p.name,
                         &new_versions_sub,
+                        ManifestDiscriminant::Package,
                         self.exact,
                         &mut inherited_pkgs,
                     )?
@@ -266,7 +273,6 @@ impl VersionOpt {
             );
         }
 
-        let workspace_root = metadata.workspace_root.join("Cargo.toml");
         fs::write(
             &workspace_root,
             format!(
@@ -275,6 +281,7 @@ impl VersionOpt {
                     fs::read_to_string(&workspace_root)?,
                     "<workspace>",
                     &new_versions_root,
+                    ManifestDiscriminant::Workspace,
                     self.exact,
                     &mut HashSet::new(),
                 )?

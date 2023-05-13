@@ -1,4 +1,6 @@
-use crate::utils::{cargo, change_versions, info, Error, Result, INTERNAL_ERR};
+use crate::utils::{
+    cargo, change_versions, info, Error, ManifestDiscriminant, Result, INTERNAL_ERR,
+};
 
 use cargo_metadata::Metadata;
 use clap::{ArgEnum, Parser};
@@ -121,6 +123,7 @@ impl Create {
                 fs::read_to_string(&manifest)?,
                 &name,
                 &versions,
+                ManifestDiscriminant::Package,
                 false,
                 &mut HashSet::new(),
             )?,
