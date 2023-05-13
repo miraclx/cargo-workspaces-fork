@@ -289,7 +289,7 @@ impl VersionOpt {
                     "-p",
                     &format!(
                         "file://{}#{}",
-                        p.path.canonicalize().expect(INTERNAL_ERR).display(),
+                        p.manifest_path.parent().expect(INTERNAL_ERR),
                         pkg_name
                     ),
                 ],
