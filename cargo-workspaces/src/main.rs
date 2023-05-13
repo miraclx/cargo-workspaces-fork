@@ -75,6 +75,7 @@ fn main() {
 
         let metadata = cmd.exec().unwrap();
 
+        std::env::set_current_dir(&metadata.workspace_root).expect("Error setting cwd");
         match opt.subcommand {
             Subcommand::List(x) => x.run(metadata),
             Subcommand::Changed(x) => x.run(metadata),
