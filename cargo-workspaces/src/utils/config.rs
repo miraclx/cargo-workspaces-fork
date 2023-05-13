@@ -47,7 +47,8 @@ pub struct ExcludeSpec {
 pub struct WorkspaceConfig {
     pub version: Option<Version>,
     pub exclude: Option<ExcludeSpec>,
-    pub group: Option<Vec<WorkspaceGroupSpec>>,
+    #[serde(rename = "group")]
+    pub groups: Vec<WorkspaceGroupSpec>,
     pub allow_branch: Option<String>,
     pub no_individual_tags: Option<bool>,
 }

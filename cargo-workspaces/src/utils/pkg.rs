@@ -9,9 +9,9 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 
 use std::{
-    borrow::Borrow,
     cmp::max,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
+    fmt,
     iter::repeat,
     path::{Path, PathBuf},
     str::FromStr,
@@ -168,13 +168,13 @@ impl FromStr for GroupName {
     }
 }
 
-impl Borrow<str> for GroupName {
-    fn borrow(&self) -> &str {
-        match self {
+impl fmt::Display for GroupName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.pad(match self {
             GroupName::Default => "default",
             GroupName::Excluded => "excluded",
             GroupName::Custom(custom) => custom.as_str(),
-        }
+        })
     }
 }
 
@@ -211,9 +211,33 @@ pub fn get_group_packages(
     all: bool,
 ) -> Result<WorkspaceGroups> {
     let mut non_empty = false;
-    let mut pkg_groups = WorkspaceGroups {
-        named_groups: HashMap::new(),
-    };
+
+    let mut named_groups = workspace_config.groups.iter().fold(
+        Ok(HashMap::from([
+            (
+                GroupName::Default,
+                (workspace_config.version.clone(), vec![]),
+            ),
+            (GroupName::Excluded, (None, vec![])),
+        ])),
+        |mut acc, group| {
+            if let Ok(acc) = &mut acc {
+                let group_name = GroupName::Custom(group.name.clone());
+                if acc.contains_key(&group_name) {
+                    return Err(Error::DuplicateGroupName {
+                        name: group.name.clone(),
+                    });
+                }
+                if group.members.is_empty() {
+                    return Err(Error::EmptyGroup {
+                        name: group.name.clone(),
+                    });
+                }
+                acc.insert(group_name, (group.version.clone(), vec![]));
+            }
+            acc
+        },
+    )?;
 
     for id in &metadata.workspace_members {
         if let Some(pkg) = metadata.packages.iter().find(|x| x.id == *id) {
@@ -251,11 +275,11 @@ pub fn get_group_packages(
                 manifest_path: pkg.manifest_path.clone(),
             };
 
-            let (group_name, group_version) = 'found_group: loop {
+            let (group_name, member_pat) = 'found_group: loop {
                 if let Some(ref exclude_spec) = workspace_config.exclude {
                     for member_pat in exclude_spec.members.iter() {
                         if member_pat.matches_path(pkg.path.as_path()) {
-                            break 'found_group (GroupName::Excluded, None);
+                            break 'found_group (GroupName::Excluded, Some(member_pat));
                         }
                     }
                 }
@@ -264,16 +288,12 @@ pub fn get_group_packages(
 
                 non_empty |= true;
 
-                if let Some(ref package_groups) = workspace_config.group {
-                    for group in package_groups.iter() {
-                        for member_pat in group.members.iter() {
-                            if member_pat.matches_path(pkg.path.as_path()) {
-                                matched_groups.push((
-                                    GroupName::Custom(group.name.clone()),
-                                    group.version.clone(),
-                                ));
-                                break;
-                            }
+                for group in &workspace_config.groups {
+                    for member_pat in &group.members {
+                        if member_pat.matches_path(pkg.path.as_path()) {
+                            matched_groups
+                                .push((GroupName::Custom(group.name.clone()), Some(member_pat)));
+                            break;
                         }
                     }
                 }
@@ -298,7 +318,7 @@ pub fn get_group_packages(
                 }
 
                 break 'found_group match matched_groups.len() {
-                    0 => (GroupName::Default, workspace_config.version.clone()),
+                    0 => (GroupName::Default, None),
                     1 => matched_groups.remove(0),
                     _ => {
                         return Err(Error::PackageExistsInMultipleGroups {
@@ -314,12 +334,11 @@ pub fn get_group_packages(
                 };
             };
 
-            pkg_groups
-                .named_groups
-                .entry(group_name)
-                .or_insert_with(|| (group_version, vec![]))
+            named_groups
+                .get_mut(&group_name)
+                .expect(INTERNAL_ERR)
                 .1
-                .push(pkg);
+                .push((pkg, member_pat));
         } else {
             Error::PackageNotFound {
                 id: id.repr.clone(),
@@ -332,11 +351,57 @@ pub fn get_group_packages(
         return Err(Error::EmptyWorkspace);
     }
 
-    pkg_groups
-        .named_groups
+    let mut unmatched_group_patterns = HashMap::new();
+
+    for group in &workspace_config.groups {
+        let (_, pkgs) = named_groups
+            .get(&GroupName::Custom(group.name.clone()))
+            .expect(INTERNAL_ERR);
+        'member: for g_pat in &group.members {
+            for (_, pat) in pkgs {
+                if g_pat == pat.expect(INTERNAL_ERR) {
+                    continue 'member;
+                }
+            }
+            unmatched_group_patterns
+                .entry(group.name.clone())
+                .or_insert_with(HashSet::new)
+                .insert(g_pat.as_str().to_string());
+        }
+    }
+
+    if !unmatched_group_patterns.is_empty() {
+        return Err(Error::UnmatchedCustomGroupPattern(unmatched_group_patterns));
+    }
+
+    if let Some(exclude_spec) = &workspace_config.exclude {
+        let mut unmatched_exclude_group_patterns = HashSet::new();
+        let (_, pkgs) = named_groups.get(&GroupName::Excluded).expect(INTERNAL_ERR);
+        'member: for g_pat in &exclude_spec.members {
+            for (_, pat) in pkgs {
+                if g_pat == pat.expect(INTERNAL_ERR) {
+                    continue 'member;
+                }
+            }
+            unmatched_exclude_group_patterns.insert(g_pat.as_str().to_string());
+        }
+        if !unmatched_exclude_group_patterns.is_empty() {
+            return Err(Error::UnmatchedExcludeGroupPattern(
+                unmatched_exclude_group_patterns,
+            ));
+        }
+    }
+
+    named_groups
         .values_mut()
-        .for_each(|(_, pkgs)| pkgs.sort());
-    Ok(pkg_groups)
+        .for_each(|(_, pkgs)| pkgs.sort_by_key(|(pkg, _)| pkg.name.clone()));
+
+    Ok(WorkspaceGroups {
+        named_groups: named_groups
+            .into_iter()
+            .map(|(k, (ver, pkgs))| (k, (ver, pkgs.into_iter().map(|(pkg, _)| pkg).collect())))
+            .collect(),
+    })
 }
 
 #[derive(Deserialize)]

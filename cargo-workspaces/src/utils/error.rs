@@ -5,6 +5,7 @@ use oclif::{term::ERR_YELLOW, CliError};
 use thiserror::Error;
 
 use std::{
+    collections::{HashMap, HashSet},
     io,
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -57,8 +58,8 @@ pub enum Error {
     #[error("unable to find package {id}")]
     PackageNotFound { id: String },
     #[error(
-        "the package {name} ({rel_path}) {note}: {}",
-        .groups.join(", "),
+        "the package `{name}` ({rel_path}) {note}: {}",
+        .groups.iter().map(|group| format!("`{}`", group)).collect::<Vec<_>>().join(", "),
         note = if *.inherits {
             "which inherits the workspace version is also included in these groups"
         } else {
@@ -73,6 +74,25 @@ pub enum Error {
     },
     #[error("did not find any package")]
     EmptyWorkspace,
+    #[error("the group `{name}` has no members")]
+    EmptyGroup { name: String },
+    #[error("the group `{name}` is defined multiple times")]
+    DuplicateGroupName { name: String },
+    #[error(
+        "these group member patterns matched no packages:\n{}",
+        .0.iter().map(|(group_name, pkgs)| format!(
+            "{:8} - `{}` : {}",
+            "",
+            group_name,
+            pkgs.iter().map(|group| format!("`{}`", group)).collect::<Vec<_>>().join(", ")
+        )).collect::<Vec<_>>().join("\n")
+    )]
+    UnmatchedCustomGroupPattern(HashMap<String, HashSet<String>>),
+    #[error(
+        "these excluded member patterns matched no packages: {}",
+        .0.iter().map(|group| format!("`{}`", group)).collect::<Vec<_>>().join(", ")
+    )]
+    UnmatchedExcludeGroupPattern(HashSet<String>),
     #[error("package {0}'s manifest has no parent directory")]
     ManifestHasNoParent(String),
     #[error("unable to read metadata specified in Cargo.toml: {0}")]
