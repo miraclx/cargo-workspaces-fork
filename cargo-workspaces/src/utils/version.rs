@@ -194,17 +194,16 @@ impl VersionOpt {
         let (new_version, new_versions) = self.confirm_versions(bumped_pkgs)?;
 
         let mut new_versions_root = Map::new();
-        if let Some(version) = &new_version {
-            new_versions_root.insert("<workspace>".to_string(), version.clone());
-        }
 
         let workspace_root = metadata.workspace_root.join("Cargo.toml");
+        let mut workspace_key = "<workspace>".to_string();
 
         for p in &metadata.packages {
             let deps = p
                 .dependencies
                 .iter()
                 .filter_map(|dep| {
+                    // todo! make sure the dep path is part of the workspace
                     dep.path.as_ref().and(new_versions.get(&dep.name).map(|_| {
                         (
                             dep.rename.as_ref().unwrap_or(&dep.name).clone(),
@@ -222,25 +221,22 @@ impl VersionOpt {
                 continue;
             }
 
-            if let Some((_, version)) = new_versions.get(&p.name) {
-                new_versions_root.insert(p.name.clone(), version.clone());
-            }
-
             let mut new_versions_sub = deps
-                .iter()
+                .into_iter()
                 .map(|(key, pkg_name)| {
                     (
-                        key.clone(),
-                        new_versions.get(pkg_name).expect(INTERNAL_ERR).1.clone(),
+                        key,
+                        new_versions.get(&pkg_name).expect(INTERNAL_ERR).1.clone(),
                     )
                 })
                 .collect::<Map<_, _>>();
 
             if let Some((_, version)) = new_versions.get(&p.name) {
                 new_versions_sub.insert(p.name.clone(), version.clone());
+                new_versions_root.insert(p.name.clone(), version.clone());
 
                 if p.manifest_path == workspace_root {
-                    new_versions_root.insert("<workspace>".to_string(), version.clone());
+                    workspace_key = p.name.clone();
                 }
             }
 
@@ -261,16 +257,15 @@ impl VersionOpt {
                 ),
             )?;
 
-            new_versions_root.extend(
-                inherited_pkgs
-                    .into_iter()
-                    .filter_map(|pkg_name| {
-                        new_versions_sub
-                            .get(&pkg_name)
-                            .map(|version| (pkg_name, version.clone()))
-                    })
-                    .collect::<Map<_, _>>(),
-            );
+            new_versions_root.extend(inherited_pkgs.into_iter().filter_map(|pkg_name| {
+                new_versions_sub
+                    .get(&pkg_name)
+                    .map(|version| (pkg_name, version.clone()))
+            }));
+        }
+
+        if let Some(version) = &new_version {
+            new_versions_root.insert(workspace_key.clone(), version.clone());
         }
 
         fs::write(
@@ -279,7 +274,7 @@ impl VersionOpt {
                 "{}\n",
                 change_versions(
                     fs::read_to_string(&workspace_root)?,
-                    "<workspace>",
+                    &workspace_key,
                     &new_versions_root,
                     ManifestDiscriminant::Workspace,
                     self.exact,
