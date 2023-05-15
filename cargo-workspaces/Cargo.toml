@@ -1,7 +1,10 @@
 [package]
 name = "cargo-workspaces"
-version = "0.2.36"
-authors = ["Pavan Kumar Sunkara <pavan.sss1991@gmail.com>"]
+version = "0.3.0"
+authors = [
+  "Pavan Kumar Sunkara <pavan.sss1991@gmail.com>",
+  "Miraculous Owonubi <omiraculous@gmail.com>",
+]
 edition = "2018"
 description = "Cargo workspace manager"
 repository = "https://github.com/pksunkara/cargo-workspaces"

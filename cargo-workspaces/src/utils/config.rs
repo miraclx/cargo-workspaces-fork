@@ -59,7 +59,9 @@ impl GroupMember {
             for entry in (self.paths_fn)() {
                 if let Ok(entry) = entry {
                     if let Ok(entry) = entry.canonicalize() {
-                        return entry == path;
+                        if entry == path {
+                            return true;
+                        }
                     }
                 }
             }
