@@ -277,7 +277,10 @@ pub fn get_group_packages(
                 if let Some(ref exclude_spec) = workspace_config.exclude {
                     for member in exclude_spec.members.iter() {
                         if member.matches(&pkg.path) {
-                            break 'found_group (GroupName::Excluded, Some(&member.pattern));
+                            break 'found_group (
+                                GroupName::Excluded,
+                                Some(member.pattern.as_str()),
+                            );
                         }
                     }
                 }
@@ -291,7 +294,7 @@ pub fn get_group_packages(
                         if member.matches(&pkg.path) {
                             matched_groups.push((
                                 GroupName::Custom(group.name.clone()),
-                                Some(&member.pattern),
+                                Some(member.pattern.as_str()),
                             ));
                             break;
                         }
@@ -359,14 +362,14 @@ pub fn get_group_packages(
             .expect(INTERNAL_ERR);
         'member: for member in &group.members {
             for (_, pat) in pkgs {
-                if member.pattern == *pat.expect(INTERNAL_ERR) {
+                if member.pattern.as_str() == pat.expect(INTERNAL_ERR) {
                     continue 'member;
                 }
             }
             unmatched_group_patterns
                 .entry(group.name.clone())
                 .or_insert_with(HashSet::new)
-                .insert(member.pattern.clone());
+                .insert(member.pattern.as_str().to_owned());
         }
     }
 
@@ -379,11 +382,11 @@ pub fn get_group_packages(
         let (_, pkgs) = named_groups.get(&GroupName::Excluded).expect(INTERNAL_ERR);
         'member: for member in &exclude_spec.members {
             for (_, pat) in pkgs {
-                if member.pattern == *pat.expect(INTERNAL_ERR) {
+                if member.pattern.as_str() == pat.expect(INTERNAL_ERR) {
                     continue 'member;
                 }
             }
-            unmatched_exclude_group_patterns.insert(member.pattern.clone());
+            unmatched_exclude_group_patterns.insert(member.pattern.as_str().to_owned());
         }
         if !unmatched_exclude_group_patterns.is_empty() {
             return Err(Error::UnmatchedExcludeGroupPattern(

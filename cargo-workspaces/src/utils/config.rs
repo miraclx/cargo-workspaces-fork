@@ -43,8 +43,8 @@ pub struct ExcludeSpec {
 }
 
 pub struct GroupMember {
-    pub paths_fn: Box<dyn Fn() -> glob::Paths>,
-    pub pattern: String,
+    pub pattern: glob::Pattern,
+    paths_fn: Box<dyn Fn() -> glob::Paths>,
 }
 
 impl fmt::Debug for GroupMember {
@@ -110,9 +110,8 @@ where
             let mut vec = Vec::with_capacity(seq.size_hint().unwrap_or(0));
 
             while let Some(elem) = seq.next_element::<String>()? {
-                glob::Pattern::new(&elem).map_err(de::Error::custom)?;
                 vec.push(GroupMember {
-                    pattern: elem.clone(),
+                    pattern: glob::Pattern::new(&elem).map_err(de::Error::custom)?,
                     paths_fn: Box::new(move || glob::glob(&elem).expect(utils::INTERNAL_ERR)),
                 });
             }
