@@ -1,9 +1,7 @@
 <!-- omit from toc -->
 # cargo-workspaces
 
-Fork maintained by @miraclx.
-
-Inspired by [Lerna](https://lerna.js.org/)
+Fork maintained by [miraclx](https://github.com/miraclx). Inspired by [Lerna](https://lerna.js.org/).
 
 A tool that optimizes the workflow around cargo workspaces with `git` and `cargo` by providing utilities to
 version, publish, execute commands and more.
@@ -28,7 +26,7 @@ But this will also work on single crates because by default every individual cra
 ## Installation
 
 ```console
-cargo install cargo-workspaces
+cargo install --git https://github.com/miraclx/cargo-workspaces cargo-workspaces
 ```
 
 ## Usage
