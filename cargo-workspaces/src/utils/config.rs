@@ -76,7 +76,7 @@ impl GroupMember {
 pub struct WorkspaceConfig {
     pub version: Option<Version>,
     pub exclude: Option<ExcludeSpec>,
-    #[serde(rename = "group")]
+    #[serde(rename = "group", default)]
     pub groups: Vec<WorkspaceGroupSpec>,
     pub allow_branch: Option<String>,
     pub no_individual_tags: Option<bool>,
