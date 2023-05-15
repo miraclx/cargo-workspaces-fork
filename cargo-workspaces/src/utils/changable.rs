@@ -93,12 +93,6 @@ impl ChangeOpt {
         let pkgs = if let Some(since) = since {
             info!("looking for changes since", since);
 
-            let (_, changed_files, _) = git(
-                &metadata.workspace_root,
-                &["diff", "--name-only", "--relative", since],
-            )?;
-
-            let changed_files = changed_files.split('\n').map(Path::new).collect::<Vec<_>>();
             let force = self
                 .force
                 .clone()
@@ -109,6 +103,27 @@ impl ChangeOpt {
                 .clone()
                 .map(|x| Glob::new(&x))
                 .map_or::<Result<_, GlobsetError>, _>(Ok(None), |x| Ok(x.ok()))?;
+
+            let (_, changed_files, _) = git(
+                &metadata.workspace_root,
+                &["diff", "--name-only", "--relative", since],
+            )?;
+
+            let mut changed_files = changed_files
+                .split('\n')
+                .filter(|f| {
+                    !matches!(&ignore_changes, Some(pattern) if pattern.compile_matcher().is_match(f))
+                })
+                .map(|p| (Path::new(p), false))
+                .collect::<Vec<_>>();
+
+            let mut workspace_groups = workspace_groups.into_iter().collect::<Vec<_>>();
+            workspace_groups.sort_by(|(_, a), (_, b)| {
+                b.path
+                    .components()
+                    .count()
+                    .cmp(&a.path.components().count())
+            });
 
             workspace_groups
                 .into_iter()
@@ -123,18 +138,16 @@ impl ChangeOpt {
                         return false;
                     }
 
-                    changed_files.iter().any(|f| {
-                        if let Some(pattern) = &ignore_changes {
-                            if pattern
-                                .compile_matcher()
-                                .is_match(f.to_str().expect(INTERNAL_ERR))
-                            {
-                                return false;
-                            }
+                    let mut has_changed = false;
+                    for (f, has_been_claimed) in changed_files.iter_mut() {
+                        if !*has_been_claimed {
+                            let just_changed = f.starts_with(&p.path) || p.path.as_os_str() == ".";
+                            *has_been_claimed = just_changed;
+                            has_changed |= just_changed;
                         }
+                    }
 
-                        f.starts_with(&p.path)
-                    })
+                    has_changed
                 })
         } else {
             (workspace_groups.into_iter().collect(), vec![])
