@@ -29,7 +29,9 @@ lazy_static! {
     static ref PACKAGE: Regex =
         Regex::new(r#"^(\s*['"]?package['"]?\s*=\s*['"])([0-9A-Za-z-_]+)(['"].*)$"#).expect(INTERNAL_ERR);
     static ref PACKAGE_TABLE: Regex =
-        Regex::new(r#"^\[(workspace\.)?package]"#).expect(INTERNAL_ERR);
+        Regex::new(r#"^\[package]"#).expect(INTERNAL_ERR);
+    static ref PACKAGE_TABLE_WORKSPACE: Regex =
+        Regex::new(r#"^\[workspace\.package]"#).expect(INTERNAL_ERR);
     static ref DEP_TABLE: Regex =
         Regex::new(r#"^\[(target\.'?([^']+)'?\.)?dependencies]"#).expect(INTERNAL_ERR);
     static ref DEP_TABLE_WORKSPACE: Regex =
@@ -252,7 +254,7 @@ use ManifestDiscriminant::*;
 fn parse<P, D, DE, DP>(
     manifest: String,
     dev_deps: bool,
-    dis: ManifestDiscriminant,
+    md: ManifestDiscriminant,
     package_f: P,
     mut dependencies_f: D,
     dependency_entries_f: DE,
@@ -277,11 +279,13 @@ where
         let count = new_lines.len();
 
         #[allow(clippy::if_same_then_else)]
-        if let Some(_) = PACKAGE_TABLE.captures(trimmed) {
+        if let (Any | Package, Some(_)) = (md, PACKAGE_TABLE.captures(trimmed)) {
             context = Context::Package;
-        } else if let (Any | Workspace, Some(_)) = (dis, DEP_TABLE_WORKSPACE.captures(trimmed)) {
+        } else if let (Workspace, Some(_)) = (md, PACKAGE_TABLE_WORKSPACE.captures(trimmed)) {
+            context = Context::Package;
+        } else if let (Any | Package, Some(_)) = (md, DEP_TABLE.captures(trimmed)) {
             context = Context::Dependencies;
-        } else if let (Any | Package, Some(_)) = (dis, DEP_TABLE.captures(trimmed)) {
+        } else if let (Any | Workspace, Some(_)) = (md, DEP_TABLE_WORKSPACE.captures(trimmed)) {
             context = Context::Dependencies;
         } else if let Some(_) = BUILD_DEP_TABLE.captures(trimmed) {
             context = Context::Dependencies;
@@ -292,9 +296,9 @@ where
             } else {
                 context = Context::DontCare;
             }
-        } else if let (Any | Workspace, Some(caps)) = (dis, DEP_ENTRY_WORKSPACE.captures(trimmed)) {
+        } else if let (Any | Package, Some(caps)) = (md, DEP_ENTRY.captures(trimmed)) {
             context = Context::DependencyEntry(caps[1].to_string(), None, false);
-        } else if let (Any | Package, Some(caps)) = (dis, DEP_ENTRY.captures(trimmed)) {
+        } else if let (Any | Workspace, Some(caps)) = (md, DEP_ENTRY_WORKSPACE.captures(trimmed)) {
             context = Context::DependencyEntry(caps[1].to_string(), None, false);
         } else if let Some(caps) = BUILD_DEP_ENTRY.captures(trimmed) {
             context = Context::DependencyEntry(caps[1].to_string(), None, false);
@@ -704,7 +708,7 @@ mod test {
                 m.into(),
                 "<workspace>",
                 &v,
-                ManifestDiscriminant::Package,
+                ManifestDiscriminant::Workspace,
                 false,
                 &mut HashSet::new()
             )
@@ -1593,6 +1597,37 @@ mod test {
             indoc! {r#"
                 [dependencies]
                 this.workspace = true # hello"#
+            }
+        );
+    }
+
+    #[test]
+    fn test_name_workspace() {
+        let m = indoc! {r#"
+            [package]
+            name = "this" # hello
+
+            [workspace.package] # cargo doesn't allow name inheritance anyway
+            name = "this" # hello
+
+            [package]
+            name = "this" # hello
+        "#};
+
+        let mut v = Map::new();
+        v.insert("this".to_string(), "ra_this".to_string());
+
+        assert_eq!(
+            rename_packages(m.into(), "this", &v).unwrap(),
+            indoc! {r#"
+                [package]
+                name = "ra_this" # hello
+
+                [workspace.package] # cargo doesn't allow name inheritance anyway
+                name = "this" # hello
+
+                [package]
+                name = "ra_this" # hello"#
             }
         );
     }
