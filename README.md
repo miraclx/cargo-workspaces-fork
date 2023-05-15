@@ -1,6 +1,8 @@
 <!-- omit from toc -->
 # cargo-workspaces
 
+Fork maintained by @miraclx.
+
 Inspired by [Lerna](https://lerna.js.org/)
 
 A tool that optimizes the workflow around cargo workspaces with `git` and `cargo` by providing utilities to
@@ -25,7 +27,7 @@ But this will also work on single crates because by default every individual cra
 
 ## Installation
 
-```
+```console
 cargo install cargo-workspaces
 ```
 
@@ -42,7 +44,7 @@ The basic commands available for this tool are given below. Assuming you run the
 Initializes a new cargo workspace in the given directory. Creates `Cargo.toml` if it does not exist and
 fills the `members` with the all the crates that can be found in that directory.
 
-```
+```console
 USAGE:
     cargo workspaces init [PATH]
 
@@ -59,7 +61,7 @@ Interactively creates a new crate in the workspace. *We recommend using this ins
 the crates start with `0.0.0` version because the [version](#version) is responsible for determining the
 version.
 
-```
+```console
 USAGE:
     cargo workspaces create [OPTIONS] <PATH>
 
@@ -78,7 +80,7 @@ OPTIONS:
 
 Lists crates in the workspace.
 
-```
+```console
 USAGE:
     cargo workspaces list [OPTIONS]
 
@@ -101,11 +103,10 @@ Several aliases are available.
 List crates that have changed since the last git tag. This is useful to see the list of crates that
 would be the subjects of the next [version](#version) or [publish](#publish) command.
 
-```
+```console
 USAGE:
     cargo workspaces changed [OPTIONS]
 
-OPTIONS:
 OPTIONS:
     -a, --all                         Show private crates that are normally hidden
         --force <pattern>             Always include targeted crates matched by glob even when there are no changes
@@ -122,7 +123,7 @@ OPTIONS:
 
 Executes an arbitrary command in each crate of the workspace.
 
-```
+```console
 USAGE:
     cargo workspaces exec [OPTIONS] <ARGS>...
 
@@ -150,7 +151,7 @@ Bump versions of the crates in the workspace. This command does the following:
 
 You can influence the above steps with the flags and options for this command.
 
-```
+```console
 USAGE:
     cargo workspaces version [OPTIONS] [--] [ARGS]
 
@@ -180,6 +181,7 @@ GIT OPTIONS:
         --individual-tag-msg <msg>          Customize tag msg for individual tags, defaults to individual tag name (can contain `%n` and `%v`)
         --individual-tag-prefix <prefix>    Customize prefix for individual tags (should contain `%n`) [default: %n@]
     -m, --message <MESSAGE>                 Use a custom commit message when creating the version commit [default: Release %v]
+        --no-git                            Do not perform any git operations
         --no-git-commit                     Do not commit version changes
         --no-git-push                       Do not push generated commit and tags to git remote
         --no-git-tag                        Do not tag generated commit
@@ -245,7 +247,7 @@ members = [ "crates/*" ]
 
 > Note that group membership is exclusive, a crate isn't allowed to be a part of multiple groups.
 > Also, the `default` group name is reserved for crates that don't belong to any group.
-> And, the `excluded` group name is reserved for crates that are marked to be [excluded](#exclusion) from being versioned
+> And, the `excluded` group name is reserved for crates that are marked to be [excluded](#exclusion) from being versioned.
 
 For more details, check [Config](#config) section below.
 
@@ -260,7 +262,7 @@ this command runs [version](#version) first. If you do not want that to happen, 
 > dev-dependencies are ignored by `cargo publish` - as such, a dev-dependency on a
 > local crate (with a `path` attribute), should *not* have a `version` field.
 
-```
+```console
 USAGE:
     cargo workspaces publish [OPTIONS] [--] [ARGS]
 
@@ -268,7 +270,8 @@ OPTIONS:
     -h, --help    Print help information
 
 VERSION ARGS:
-    <BUMP>      Increment all versions by the given explicit semver keyword while skipping the prompts for them [possible values: major, minor, patch, premajor, preminor, prepatch, prerelease, custom]
+    <BUMP>      Increment all versions by the given explicit semver keyword while skipping the prompts for them
+                [possible values: major, minor, patch, premajor, preminor, prepatch, prerelease, custom]
     <CUSTOM>    Specify custom version value when 'bump' is set to 'custom'
 
 VERSION OPTIONS:
@@ -289,6 +292,7 @@ GIT OPTIONS:
         --individual-tag-msg <msg>          Customize tag msg for individual tags, defaults to individual tag name (can contain `%n` and `%v`)
         --individual-tag-prefix <prefix>    Customize prefix for individual tags (should contain `%n`) [default: %n@]
     -m, --message <MESSAGE>                 Use a custom commit message when creating the version commit [default: Release %v]
+        --no-git                            Do not perform any git operations
         --no-git-commit                     Do not commit version changes
         --no-git-push                       Do not push generated commit and tags to git remote
         --no-git-tag                        Do not tag generated commit
@@ -311,7 +315,7 @@ PUBLISH OPTIONS:
 
 Rename crates in the project. You can run this command when you might want to publish the crates with a standard prefix.
 
-```
+```console
 USAGE:
     cargo workspaces rename [OPTIONS] <TO>
 
@@ -321,6 +325,7 @@ ARGS:
 OPTIONS:
     -a, --all                 Rename private crates too
     -f, --from <crate>        Rename only a specific crate
+        --groups <GROUPS>     Comma separated list of crate groups to rename
     -h, --help                Print help information
         --ignore <pattern>    Ignore the crates matched by glob
 ```
@@ -331,7 +336,6 @@ There are two kinds of configuration options.
 
 * **Workspace**: Options that are specified in the workspace with `[workspace.metadata.workspaces]`
 * **Package**: Options that are specified in the package with `[package.metadata.workspaces]`
-
 
 ### Package Configuration
 
@@ -352,7 +356,6 @@ exclude = [ "./foo", "./bar/*" ]        # List of crates to exclude from actions
 name = "utils"                          # Name for this group
 members = [ "./utils/a", "./utils/b" ]  # Member crates belonging to this group
 ```
-
 
 <!-- omit from toc -->
 ## Contributors
@@ -377,8 +380,8 @@ MIT/X11
 Report [here](http://github.com/pksunkara/cargo-workspaces/issues).
 
 <!-- omit from toc -->
-## Creator
+## Credit
 
-Pavan Kumar Sunkara (pavan.sss1991@gmail.com)
+Originally built by Pavan Kumar Sunkara (<pavan.sss1991@gmail.com>, [GitHub](https://github.com/users/follow?target=pksunkara), [Twitter](http://twitter.com/pksunkara))
 
-Follow me on [github](https://github.com/users/follow?target=pksunkara), [twitter](http://twitter.com/pksunkara)
+Now maintained by Miraculous Owonubi (<omiraculous@gmail.com>, [GitHub](https://github.com/users/follow?target=miraclx), [Twitter](http://twitter.com/miraclx))
