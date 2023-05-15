@@ -27,6 +27,7 @@ pub struct PackageConfig {
 }
 
 #[derive(Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct WorkspaceGroupSpec {
     #[serde(deserialize_with = "validate_group_name")]
     pub name: String,
@@ -36,7 +37,7 @@ pub struct WorkspaceGroupSpec {
 }
 
 #[derive(Deserialize, Debug)]
-#[serde(transparent)]
+#[serde(transparent, deny_unknown_fields)]
 pub struct ExcludeSpec {
     #[serde(deserialize_with = "deserialize_members")]
     pub members: Vec<GroupMember>,
@@ -71,6 +72,7 @@ impl GroupMember {
 }
 
 #[derive(Deserialize, Default, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct WorkspaceConfig {
     pub version: Option<Version>,
     pub exclude: Option<ExcludeSpec>,
