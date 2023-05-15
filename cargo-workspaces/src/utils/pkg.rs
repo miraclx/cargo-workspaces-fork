@@ -235,12 +235,7 @@ pub fn get_group_packages(
 
     for id in &metadata.workspace_members {
         if let Some(pkg) = metadata.packages.iter().find(|x| x.id == *id) {
-            let private =
-                pkg.publish.is_some() && pkg.publish.as_ref().expect(INTERNAL_ERR).is_empty();
-
-            if !all && private {
-                continue;
-            }
+            let private = pkg.publish.as_ref().map_or(false, Vec::is_empty);
 
             let loc = match pkg.manifest_path.strip_prefix(&metadata.workspace_root) {
                 Ok(loc) => loc,
@@ -402,7 +397,17 @@ pub fn get_group_packages(
     Ok(WorkspaceGroups {
         named_groups: named_groups
             .into_iter()
-            .map(|(k, (ver, pkgs))| (k, (ver, pkgs.into_iter().map(|(pkg, _)| pkg).collect())))
+            .map(|(k, (ver, pkgs))| {
+                (
+                    k,
+                    (
+                        ver,
+                        pkgs.into_iter()
+                            .filter_map(|(pkg, _)| (all || !pkg.private).then_some(pkg))
+                            .collect(),
+                    ),
+                )
+            })
             .collect(),
     })
 }
