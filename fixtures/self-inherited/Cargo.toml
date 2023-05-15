@@ -26,3 +26,7 @@ foo = { path = "./crates/foo" }
 bar = { path = "./crates/bar" }
 common = { path = "./crates/common", package = "libcommon" }
 syn = { path = "./crates/syn" }
+
+[[workspace.metadata.workspaces.group]]
+name = "foo-and-bar"
+members = ["crates/foo", "crates/bar"]
