@@ -380,6 +380,6 @@ Report [here](http://github.com/pksunkara/cargo-workspaces/issues).
 <!-- omit from toc -->
 ## Credit
 
-Originally built by Pavan Kumar Sunkara (<pavan.sss1991@gmail.com>, [GitHub](https://github.com/users/follow?target=pksunkara), [Twitter](http://twitter.com/pksunkara))
+Originally built by Pavan Kumar Sunkara (<pavan.sss1991@gmail.com>, [GitHub](https://github.com/pksunkara), [Twitter](http://twitter.com/pksunkara))
 
-Now maintained by Miraculous Owonubi (<omiraculous@gmail.com>, [GitHub](https://github.com/users/follow?target=miraclx), [Twitter](http://twitter.com/miraclx))
+Now maintained by Miraculous Owonubi (<omiraculous@gmail.com>, [GitHub](https://github.com/miraclx), [Twitter](http://twitter.com/omiraclx))
