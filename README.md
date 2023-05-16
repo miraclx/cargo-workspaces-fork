@@ -358,7 +358,7 @@ members = [ "./utils/a", "./utils/b" ]  # Member crates belonging to this group
 <!-- omit from toc -->
 ## Contributors
 
-Here is a list of [Contributors](http://github.com/pksunkara/cargo-workspaces/contributors)
+Here is a list of [Contributors](http://github.com/miraclx/cargo-workspaces/contributors)
 
 <!-- omit from toc -->
 ### TODO
@@ -375,7 +375,7 @@ MIT/X11
 <!-- omit from toc -->
 ## Bug Reports
 
-Report [here](http://github.com/pksunkara/cargo-workspaces/issues).
+Report [here](http://github.com/miraclx/cargo-workspaces/issues).
 
 <!-- omit from toc -->
 ## Credit

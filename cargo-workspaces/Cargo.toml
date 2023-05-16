@@ -7,7 +7,7 @@ authors = [
 ]
 edition = "2018"
 description = "Cargo workspace manager"
-repository = "https://github.com/pksunkara/cargo-workspaces"
+repository = "https://github.com/miraclx/cargo-workspaces"
 license = "MIT"
 readme = "README.md"
 exclude = ["tests"]
