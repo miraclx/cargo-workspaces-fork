@@ -468,11 +468,11 @@ impl VersionOpt {
                                     ))?;
                                     for (dep, _, new_ver) in deps {
                                         TERM_ERR.write_line(&format!(
-                                            " │  \u{21b3} {}:",
+                                            " │    \u{21b3} {}:",
                                             style(dep).cyan()
                                         ))?;
                                         TERM_ERR.write_line(&format!(
-                                            " │     \u{21b3} +{}",
+                                            " │         \u{21b3} +{}",
                                             style(format!("version = \"{}\"", new_ver)).green()
                                         ))?;
                                     }
@@ -482,9 +482,10 @@ impl VersionOpt {
                                 for (name, deps) in pkgs.values() {
                                     items.push(format!(" │ {}", style(name).green()));
                                     for (dep, _, new_ver) in deps {
-                                        items.push(format!(" │  \u{21b3} {}:", style(dep).cyan()));
+                                        items
+                                            .push(format!(" │    \u{21b3} {}:", style(dep).cyan()));
                                         items.push(format!(
-                                            " │     \u{21b3} +{}",
+                                            " │         \u{21b3} +{}",
                                             style(format!("version = \"{}\"", new_ver)).green()
                                         ));
                                     }
