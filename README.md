@@ -1,7 +1,9 @@
 <!-- omit from toc -->
 # cargo-workspaces
 
-Fork maintained by [miraclx](https://github.com/miraclx). Inspired by [Lerna](https://lerna.js.org/).
+Fork of [pksunkara/cargo-workspaces](https://github.com/pksunkara/cargo-workspaces), maintained by [miraclx](https://github.com/miraclx).
+
+Inspired by [Lerna](https://lerna.js.org/).
 
 A tool that optimizes the workflow around cargo workspaces with `git` and `cargo` by providing utilities to
 version, publish, execute commands and more.
@@ -18,9 +20,13 @@ But this will also work on single crates because by default every individual cra
    5. [Exec](#exec)
    6. [Version](#version)
       1. [Fixed or Independent](#fixed-or-independent)
+      2. [Exclusion](#exclusion)
+      3. [Groups and Grouping](#groups-and-grouping)
    7. [Publish](#publish)
    8. [Rename](#rename)
 3. [Config](#config)
+    1. [Package Configuration](#package-configuration)
+    2. [Workspace Configuration](#workspace-configuration)
 4. [Changelog](#changelog)
 
 ## Installation
@@ -157,8 +163,8 @@ OPTIONS:
     -h, --help    Print help information
 
 VERSION ARGS:
-    <BUMP>      Increment all versions by the given explicit semver keyword while skipping the prompts for them [possible values: major, minor, patch,
-                premajor, preminor, prepatch, prerelease, custom]
+    <BUMP>      Increment all versions by the given explicit semver keyword while skipping the prompts for them
+                [possible values: major, minor, patch, premajor, preminor, prepatch, prerelease, custom]
     <CUSTOM>    Specify custom version value when 'bump' is set to 'custom'
 
 VERSION OPTIONS:
