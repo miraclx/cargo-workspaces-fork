@@ -129,7 +129,7 @@ impl GitOpt {
         root: &Utf8PathBuf,
         config: &WorkspaceConfig,
     ) -> Result<Option<String>, Error> {
-        if self.no_git {
+        if self.no_git || self.no_git_push {
             return Ok(None);
         }
         let (_, out, err) = git(root, &["rev-list", "--count", "--all", "--max-count=1"])?;
