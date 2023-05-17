@@ -1,6 +1,6 @@
 [package]
 name = "foobar"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Miraculous Owonubi <omiraculous@gmail.com>"]
 edition = "2021"
 
@@ -22,11 +22,11 @@ members = [
 ]
 
 [workspace.dependencies]
-foobar = { path = "." }
-foo = { path = "./crates/foo" }
-bar = { path = "./crates/bar" }
-common = { path = "./crates/common", package = "libcommon" }
-syn = { path = "./crates/syn" }
+foobar = { path = ".", version = "0.1.1" }
+foo = { path = "./crates/foo", version = "0.2.0" }
+bar = { path = "./crates/bar", version = "0.2.0" }
+common = { path = "./crates/common", package = "libcommon", version = "0.1.1" }
+syn = { path = "./crates/syn", version = "0.1.1" }
 
 [[workspace.metadata.workspaces.group]]
 name = "foo-and-bar"
