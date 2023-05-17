@@ -98,17 +98,23 @@ impl VersionOpt {
         let config: WorkspaceConfig = read_config(&metadata.workspace_metadata)?;
         let branch = self.git.validate(&metadata.workspace_root, &config)?;
 
-        let change_data = ChangeData::new(metadata, &self.change)?;
+        let last_tag = if !self.git.no_git {
+            let change_data = ChangeData::new(metadata, &self.change)?;
 
-        if self.change.force.is_none() && change_data.count == "0" && !change_data.dirty {
-            TERM_OUT.write_line("Current HEAD is already released, skipping versioning")?;
-            return Ok(Map::new());
-        }
+            if self.change.force.is_none() && change_data.count == "0" && !change_data.dirty {
+                TERM_OUT.write_line("Current HEAD is already released, skipping versioning")?;
+                return Ok(Map::new());
+            }
+
+            change_data.since
+        } else {
+            None
+        };
 
         let (mut changed_p, mut unchanged_p) = self.change.get_changed_pkgs(
             metadata,
             &config,
-            &change_data.since,
+            &last_tag,
             &self.groups[..],
             self.all,
         )?;
