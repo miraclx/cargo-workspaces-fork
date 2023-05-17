@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Add support for workspace inheritance.
+- Improved discrimination for which crate entries are modified.
+- Improved detection of modified crates.
+- Fix the case of `cargo update` failing when there are different crates with the same name.
+- Introduced the `--no-git` flag to skip all git operations.
+
 ## 0.2.36
 
 ### Enhancements

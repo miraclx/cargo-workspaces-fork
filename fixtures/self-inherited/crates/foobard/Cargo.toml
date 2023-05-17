@@ -1,0 +1,12 @@
+[package]
+name = "foobard"
+version = "0.1.0"
+authors = ["Miraculous Owonubi <omiraculous@gmail.com>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+syn.workspace = true
+foobar.workspace = true
+common.workspace = true

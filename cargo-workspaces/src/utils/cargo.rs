@@ -8,9 +8,11 @@ use regex::{Captures, Regex};
 use semver::{Version, VersionReq};
 
 use std::{
-    collections::BTreeMap as Map,
+    cell::RefCell,
+    collections::{BTreeMap as Map, HashSet},
     io::{BufRead, BufReader},
     process::{Command, Stdio},
+    rc::Rc,
     thread::sleep,
     time::{Duration, Instant},
 };
@@ -26,10 +28,18 @@ lazy_static! {
             .expect(INTERNAL_ERR);
     static ref PACKAGE: Regex =
         Regex::new(r#"^(\s*['"]?package['"]?\s*=\s*['"])([0-9A-Za-z-_]+)(['"].*)$"#).expect(INTERNAL_ERR);
+    static ref PACKAGE_TABLE: Regex =
+        Regex::new(r#"^\[package]"#).expect(INTERNAL_ERR);
+    static ref PACKAGE_TABLE_WORKSPACE: Regex =
+        Regex::new(r#"^\[workspace\.package]"#).expect(INTERNAL_ERR);
     static ref DEP_TABLE: Regex =
         Regex::new(r#"^\[(target\.'?([^']+)'?\.)?dependencies]"#).expect(INTERNAL_ERR);
+    static ref DEP_TABLE_WORKSPACE: Regex =
+        Regex::new(r#"^\[workspace\.dependencies]"#).expect(INTERNAL_ERR);
     static ref DEP_ENTRY: Regex =
         Regex::new(r#"^\[dependencies\.([0-9A-Za-z-_]+)]"#).expect(INTERNAL_ERR);
+    static ref DEP_ENTRY_WORKSPACE: Regex =
+        Regex::new(r#"^\[workspace\.dependencies\.([0-9A-Za-z-_]+)]"#).expect(INTERNAL_ERR);
     static ref BUILD_DEP_TABLE: Regex =
         Regex::new(r#"^\[(target\.'?([^']+)'?\.)?build-dependencies]"#).expect(INTERNAL_ERR);
     static ref BUILD_DEP_ENTRY: Regex =
@@ -41,8 +51,14 @@ lazy_static! {
     static ref DEP_DIRECT_VERSION: Regex =
         Regex::new(r#"^(\s*['"]?([0-9A-Za-z-_]+)['"]?\s*=\s*['"])([^'"]+)(['"].*)$"#)
             .expect(INTERNAL_ERR);
+    static ref DEP_DIRECT_INHERITED: Regex =
+        Regex::new(r#"^\s*['"]?([0-9A-Za-z-_]+)['"]?\s*\.\s*['"]?workspace['"]?\s*=\s*true\s*.*$"#)
+            .expect(INTERNAL_ERR);
     static ref DEP_OBJ_VERSION: Regex =
         Regex::new(r#"^(\s*['"]?([0-9A-Za-z-_]+)['"]?\s*=\s*\{.*['"]?version['"]?\s*=\s*['"])([^'"]+)(['"].*}.*)$"#)
+            .expect(INTERNAL_ERR);
+    static ref DEP_OBJ_INHERITED: Regex =
+        Regex::new(r#"^\s*['"]?([0-9A-Za-z-_]+)['"]?\s*=\s*\{.*['"]?workspace['"]?\s*=\s*true\s*.*}.*$"#)
             .expect(INTERNAL_ERR);
     static ref DEP_OBJ_RENAME_VERSION: Regex =
         Regex::new(r#"^(\s*['"]?([0-9A-Za-z-_]+)['"]?\s*=\s*\{.*['"]?version['"]?\s*=\s*['"])([^'"]+)(['"].*['"]?package['"]?\s*=\s*['"]([0-9A-Za-z-_]+)['"].*}.*)$"#)
@@ -191,7 +207,7 @@ enum Context {
     Beginning,
     Package,
     Dependencies,
-    DependencyEntry(String, Option<(usize, String)>),
+    DependencyEntry(String, Option<(usize, String)>, bool),
     DontCare,
 }
 
@@ -226,19 +242,29 @@ fn rename_dep(
     Ok(())
 }
 
+#[derive(Copy, Clone)]
+pub enum ManifestDiscriminant {
+    Workspace,
+    Package,
+    Any,
+}
+
+use ManifestDiscriminant::*;
+
 fn parse<P, D, DE, DP>(
     manifest: String,
     dev_deps: bool,
+    md: ManifestDiscriminant,
     package_f: P,
-    dependencies_f: D,
+    mut dependencies_f: D,
     dependency_entries_f: DE,
-    dependency_pkg_f: DP,
+    mut dependency_pkg_f: DP,
 ) -> Result<String>
 where
     P: Fn(&str, &mut Vec<String>) -> Result,
-    D: Fn(&str, &mut Vec<String>) -> Result,
-    DE: Fn(&str, &mut Option<String>) -> Result<Option<String>>,
-    DP: Fn(&str, Option<(usize, String)>, &mut Vec<String>) -> Result,
+    D: FnMut(&str, &mut Vec<String>) -> Result,
+    DE: Fn(&str, &mut Option<String>) -> (bool, Option<String>),
+    DP: FnMut(&str, Option<(usize, String)>, &mut Vec<String>, bool) -> Result,
 {
     let mut context = Context::Beginning;
     let mut new_lines = vec![];
@@ -246,16 +272,20 @@ where
     for line in manifest.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with('[') {
-            if let Context::DependencyEntry(ref dep, ref mut dep_meta) = context {
-                dependency_pkg_f(dep, dep_meta.take(), &mut new_lines)?;
+            if let Context::DependencyEntry(ref dep, ref mut dep_meta, inherits) = context {
+                dependency_pkg_f(dep, dep_meta.take(), &mut new_lines, inherits)?;
             }
         }
         let count = new_lines.len();
 
         #[allow(clippy::if_same_then_else)]
-        if trimmed.starts_with("[package]") {
+        if let (Any | Package, Some(_)) = (md, PACKAGE_TABLE.captures(trimmed)) {
             context = Context::Package;
-        } else if let Some(_) = DEP_TABLE.captures(trimmed) {
+        } else if let (Workspace, Some(_)) = (md, PACKAGE_TABLE_WORKSPACE.captures(trimmed)) {
+            context = Context::Package;
+        } else if let (Any | Package, Some(_)) = (md, DEP_TABLE.captures(trimmed)) {
+            context = Context::Dependencies;
+        } else if let (Any | Workspace, Some(_)) = (md, DEP_TABLE_WORKSPACE.captures(trimmed)) {
             context = Context::Dependencies;
         } else if let Some(_) = BUILD_DEP_TABLE.captures(trimmed) {
             context = Context::Dependencies;
@@ -263,15 +293,21 @@ where
             // TODO: let-chain
             if dev_deps {
                 context = Context::Dependencies;
+            } else {
+                context = Context::DontCare;
             }
-        } else if let Some(caps) = DEP_ENTRY.captures(trimmed) {
-            context = Context::DependencyEntry(caps[1].to_string(), None);
+        } else if let (Any | Package, Some(caps)) = (md, DEP_ENTRY.captures(trimmed)) {
+            context = Context::DependencyEntry(caps[1].to_string(), None, false);
+        } else if let (Any | Workspace, Some(caps)) = (md, DEP_ENTRY_WORKSPACE.captures(trimmed)) {
+            context = Context::DependencyEntry(caps[1].to_string(), None, false);
         } else if let Some(caps) = BUILD_DEP_ENTRY.captures(trimmed) {
-            context = Context::DependencyEntry(caps[1].to_string(), None);
+            context = Context::DependencyEntry(caps[1].to_string(), None, false);
         } else if let Some(caps) = DEV_DEP_ENTRY.captures(trimmed) {
             // TODO: let-chain
             if dev_deps {
-                context = Context::DependencyEntry(caps[1].to_string(), None);
+                context = Context::DependencyEntry(caps[1].to_string(), None, false);
+            } else {
+                context = Context::DontCare;
             }
         } else if trimmed.starts_with('[') {
             context = Context::DontCare;
@@ -280,10 +316,12 @@ where
             match &mut context {
                 Context::Package => package_f(line, &mut new_lines)?,
                 Context::Dependencies => dependencies_f(line, &mut new_lines)?,
-                Context::DependencyEntry(dep, dep_meta) => {
+                Context::DependencyEntry(dep, dep_meta, inherits) => {
                     let mut line_meta = None;
 
-                    if let Some(new_dep) = dependency_entries_f(line, &mut line_meta)? {
+                    let (_inherits, new_dep) = dependency_entries_f(line, &mut line_meta);
+                    *inherits |= _inherits;
+                    if let Some(new_dep) = new_dep {
                         *dep = new_dep;
                     }
                     if let Some(meta) = line_meta {
@@ -299,8 +337,8 @@ where
         }
     }
 
-    if let Context::DependencyEntry(ref dep, dep_meta) = context {
-        dependency_pkg_f(dep, dep_meta, &mut new_lines)?;
+    if let Context::DependencyEntry(ref dep, dep_meta, inherits) = context {
+        dependency_pkg_f(dep, dep_meta, &mut new_lines, inherits)?;
     }
 
     Ok(new_lines.join(if manifest.contains(CRLF) { CRLF } else { LF }))
@@ -314,6 +352,7 @@ pub fn rename_packages(
     parse(
         manifest,
         true,
+        Any,
         |line, new_lines| {
             if let Some(to) = renames.get(pkg_name) {
                 if let Some(caps) = NAME.captures(line) {
@@ -351,9 +390,9 @@ pub fn rename_packages(
                 package_line.replace(line.to_string());
             }
 
-            Ok(None)
+            (false, None)
         },
-        |dep, package_line, new_lines| {
+        |dep, package_line, new_lines, _| {
             match package_line {
                 Some((i, line)) => {
                     if let (Some(line), Some(caps)) =
@@ -380,11 +419,15 @@ pub fn change_versions(
     manifest: String,
     pkg_name: &str,
     versions: &Map<String, Version>,
+    dis: ManifestDiscriminant,
     exact: bool,
+    inherited: &mut HashSet<String>,
 ) -> Result<String> {
+    let inherited = Rc::new(RefCell::new(inherited));
     parse(
         manifest,
         false,
+        dis,
         |line, new_lines| {
             if let Some(new_version) = versions.get(pkg_name) {
                 if let Some(caps) = VERSION.captures(line) {
@@ -395,7 +438,11 @@ pub fn change_versions(
             Ok(())
         },
         |line, new_lines| {
-            if let Some(caps) = DEP_DIRECT_VERSION.captures(line) {
+            if let Some(caps) = DEP_DIRECT_INHERITED.captures(line) {
+                inherited.borrow_mut().insert(caps[1].to_string());
+            } else if let Some(caps) = DEP_OBJ_INHERITED.captures(line) {
+                inherited.borrow_mut().insert(caps[1].to_string());
+            } else if let Some(caps) = DEP_DIRECT_VERSION.captures(line) {
                 edit_version(caps, new_lines, versions, exact, 2)?;
             } else if let Some(caps) = DEP_OBJ_RENAME_VERSION.captures(line) {
                 edit_version(caps, new_lines, versions, exact, 5)?;
@@ -404,19 +451,17 @@ pub fn change_versions(
             } else if let Some(caps) = DEP_OBJ_VERSION.captures(line) {
                 edit_version(caps, new_lines, versions, exact, 2)?;
             } else if let Some(caps) = DEP_OBJ_NAME.captures(line) {
-                if WORKSPACE_KEY.captures(&caps[3]).is_none() {
-                    if let Some(new_version) = versions.get(&caps[2]) {
-                        if exact {
-                            new_lines.push(format!(
-                                "{}, version = \"={}\"{}",
-                                &caps[1], new_version, &caps[4]
-                            ));
-                        } else {
-                            new_lines.push(format!(
-                                "{}, version = \"{}\"{}",
-                                &caps[1], new_version, &caps[4]
-                            ));
-                        }
+                if let Some(new_version) = versions.get(&caps[2]) {
+                    if exact {
+                        new_lines.push(format!(
+                            "{}, version = \"={}\"{}",
+                            &caps[1], new_version, &caps[4]
+                        ));
+                    } else {
+                        new_lines.push(format!(
+                            "{}, version = \"{}\"{}",
+                            &caps[1], new_version, &caps[4]
+                        ));
                     }
                 }
             }
@@ -424,33 +469,34 @@ pub fn change_versions(
             Ok(())
         },
         |line, version_line| {
-            if let Some(caps) = PACKAGE.captures(line) {
-                return Ok(Some(caps[2].to_string()));
+            if let Some(_) = WORKSPACE_KEY.captures(line) {
+                return (true, None);
+            } else if let Some(caps) = PACKAGE.captures(line) {
+                return (false, Some(caps[2].to_string()));
             } else if VERSION.is_match(line) {
                 version_line.replace(line.to_string());
             }
 
-            Ok(None)
+            (false, None)
         },
-        |dep, version_line, new_lines| {
-            match version_line {
-                Some((i, line)) => {
-                    if let (Some(line), Some(caps), Some(new_version)) = (
-                        new_lines.get_mut(i),
-                        VERSION.captures(&line),
-                        versions.get(dep),
-                    ) {
-                        if exact {
-                            *line = format!("{}={}{}", &caps[1], new_version, &caps[3]);
-                        } else if !VersionReq::parse(&caps[2])?.matches(new_version) {
-                            *line = format!("{}{}{}", &caps[1], new_version, &caps[3]);
-                        }
+        |dep, version_line, new_lines, inherits| {
+            if inherits {
+                inherited.borrow_mut().insert(dep.to_string());
+            } else if let Some((i, line)) = version_line {
+                if let (Some(line), Some(caps), Some(new_version)) = (
+                    new_lines.get_mut(i),
+                    VERSION.captures(&line),
+                    versions.get(dep),
+                ) {
+                    if exact {
+                        *line = format!("{}={}{}", &caps[1], new_version, &caps[3]);
+                    } else if !VersionReq::parse(&caps[2])?.matches(new_version) {
+                        *line = format!("{}{}{}", &caps[1], new_version, &caps[3]);
                     }
                 }
-                None => {
-                    if let Some(new_version) = versions.get(dep) {
-                        new_lines.push(format!("version = \"{}\"", new_version));
-                    }
+            } else {
+                if let Some(new_version) = versions.get(dep) {
+                    new_lines.push(format!("version = \"{}\"", new_version));
                 }
             }
 
@@ -550,7 +596,15 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "this", &v, false).unwrap(),
+            change_versions(
+                m.into(),
+                "this",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
             indoc! {r#"
                 [package]
                 version = "0.3.0""#
@@ -569,7 +623,15 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "this", &v, false).unwrap(),
+            change_versions(
+                m.into(),
+                "this",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
             indoc! {r#"
                 [package]
                 version="0.3.0" # hello"#
@@ -588,7 +650,15 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "this", &v, false).unwrap(),
+            change_versions(
+                m.into(),
+                "this",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
             indoc! {r#"
                 [package]
                 "version"	=	"0.3.0""#
@@ -607,10 +677,45 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "this", &v, false).unwrap(),
+            change_versions(
+                m.into(),
+                "this",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
             indoc! {r#"
                 [package]
                 'version'='0.3.0'# hello"#
+            }
+        );
+    }
+
+    #[test]
+    fn test_version_workspace() {
+        let m = indoc! {r#"
+            [workspace.package]
+            version = "0.0.1" # hello
+        "#};
+
+        let mut v = Map::new();
+        v.insert("<workspace>".to_string(), Version::parse("0.3.0").unwrap());
+
+        assert_eq!(
+            change_versions(
+                m.into(),
+                "<workspace>",
+                &v,
+                ManifestDiscriminant::Workspace,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
+            indoc! {r#"
+                [workspace.package]
+                version = "0.3.0" # hello"#
             }
         );
     }
@@ -626,7 +731,15 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "another", &v, false).unwrap(),
+            change_versions(
+                m.into(),
+                "another",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
             indoc! {r#"
                 [dependencies]
                 this = "0.3.0" # hello"#
@@ -645,10 +758,45 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "this", &v, false).unwrap(),
+            change_versions(
+                m.into(),
+                "another",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
             indoc! {r#"
                 [dependencies]
                 this = { path = "../", version = "0.3.0" } # hello"#
+            }
+        );
+    }
+
+    #[test]
+    fn test_missing_version_dependencies_object_renamed() {
+        let m = indoc! {r#"
+            [dependencies]
+            this = { path = "../", package = "ra_this" } # hello
+        "#};
+
+        let mut v = Map::new();
+        v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
+
+        assert_eq!(
+            change_versions(
+                m.into(),
+                "another",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
+            indoc! {r#"
+                [dependencies]
+                this = { path = "../", package = "ra_this", version = "0.3.0" } # hello"#
             }
         );
     }
@@ -664,10 +812,52 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "another", &v, false).unwrap(),
+            change_versions(
+                m.into(),
+                "another",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
             indoc! {r#"
                 [dependencies]
                 this = { path = "../", version = "0.3.0" } # hello"#
+            }
+        );
+    }
+
+    #[test]
+    #[ignore = "multi-line object entries are not supported yet"]
+    fn test_version_dependencies_object_multiline() {
+        let m = indoc! {r#"
+            [dependencies]
+            this = { path = "../", features = [
+                "foo",
+                "bar"
+            ], version = "0.0.1" } # hello
+        "#};
+
+        let mut v = Map::new();
+        v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
+
+        assert_eq!(
+            change_versions(
+                m.into(),
+                "another",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
+            indoc! {r#"
+                [dependencies]
+                this = { path = "../", features = [
+                    "foo",
+                    "bar"
+                ], version = "0.3.0" } # hello"#
             }
         );
     }
@@ -683,7 +873,15 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "another", &v, false).unwrap(),
+            change_versions(
+                m.into(),
+                "another",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
             indoc! {r#"
                 [dependencies]
                 this2 = { path = "../", version = "0.3.0", package = "this" } # hello"#
@@ -702,7 +900,15 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "another", &v, false).unwrap(),
+            change_versions(
+                m.into(),
+                "another",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
             indoc! {r#"
                 [dependencies]
                 this2 = { path = "../", package = "this", version = "0.3.0" } # hello"#
@@ -722,13 +928,80 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "another", &v, false).unwrap(),
+            change_versions(
+                m.into(),
+                "another",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
             indoc! {r#"
                 [dependencies.this]
                 path = "../"
                 version = "0.3.0" # hello"#
             }
         );
+    }
+
+    #[test]
+    fn test_version_dependency_table_ignore_workspace() {
+        let m = indoc! {r#"
+            [dependencies.this]
+            path = "../"
+            workspace = true
+
+            [dependencies.other]
+            path = "../"
+            workspace = true
+
+            [dev-dependencies.dev-this]
+            path = "../"
+            workspace = true
+
+            [dev-dependencies.dev-other]
+            path = "../"
+            workspace = true
+        "#};
+
+        let mut v = Map::new();
+        v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
+
+        let mut inherited = HashSet::new();
+
+        assert_eq!(
+            change_versions(
+                m.into(),
+                "another",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut inherited
+            )
+            .unwrap(),
+            indoc! {r#"
+                [dependencies.this]
+                path = "../"
+                workspace = true
+
+                [dependencies.other]
+                path = "../"
+                workspace = true
+
+                [dev-dependencies.dev-this]
+                path = "../"
+                workspace = true
+
+                [dev-dependencies.dev-other]
+                path = "../"
+                workspace = true"#
+            }
+        );
+
+        assert_eq!(inherited.len(), 2);
+        assert!(inherited.contains("this"));
+        assert!(inherited.contains("other"));
     }
 
     #[test]
@@ -744,7 +1017,15 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "this", &v, false).unwrap(),
+            change_versions(
+                m.into(),
+                "this",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
             indoc! {r#"
                 [dependencies.this]
                 path = "../" # hello
@@ -767,7 +1048,15 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "this", &v, false).unwrap(),
+            change_versions(
+                m.into(),
+                "this",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
             indoc! {r#"
                 [dependencies.this2]
                 path = "../"
@@ -790,7 +1079,15 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "another", &v, false).unwrap(),
+            change_versions(
+                m.into(),
+                "another",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
             indoc! {r#"
                 [dependencies.this2]
                 path = "../"
@@ -811,7 +1108,15 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "another", &v, false).unwrap(),
+            change_versions(
+                m.into(),
+                "another",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
             indoc! {r#"
                 [target.x86_64-pc-windows-gnu.dependencies]
                 this = "0.3.0" # hello"#
@@ -830,7 +1135,15 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "another", &v, false).unwrap(),
+            change_versions(
+                m.into(),
+                "another",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
             indoc! {r#"
                 [target.'cfg(not(any(target_arch = "wasm32", target_os = "emscripten")))'.dependencies]
                 this = "0.3.0" # hello"#
@@ -843,16 +1156,92 @@ mod test {
         let m = indoc! {r#"
             [dependencies]
             this = { workspace = true } # hello
+            other = { workspace= true } # hello
+
+            [dev-dependencies]
+            dev-this = { workspace = true } # hello
+            dev-other = { workspace= true } # hello
+        "#};
+
+        let mut v = Map::new();
+        v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
+
+        let mut inherited = HashSet::new();
+
+        assert_eq!(
+            change_versions(
+                m.into(),
+                "another",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut inherited
+            )
+            .unwrap(),
+            indoc! {r#"
+                [dependencies]
+                this = { workspace = true } # hello
+                other = { workspace= true } # hello
+
+                [dev-dependencies]
+                dev-this = { workspace = true } # hello
+                dev-other = { workspace= true } # hello"#
+            }
+        );
+
+        assert_eq!(inherited.len(), 2);
+        assert!(inherited.contains("this"));
+        assert!(inherited.contains("other"));
+    }
+
+    #[test]
+    fn test_version_workspace_dependencies() {
+        let m = indoc! {r#"
+            [dependencies]
+            this = "0.0.1" # hello
+
+            [workspace.dependencies]
+            this = "0.0.1" # hello
         "#};
 
         let mut v = Map::new();
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "another", &v, false).unwrap(),
+            change_versions(
+                m.into(),
+                "another",
+                &v,
+                ManifestDiscriminant::Workspace,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
             indoc! {r#"
                 [dependencies]
-                this = { workspace = true } # hello"#
+                this = "0.0.1" # hello
+
+                [workspace.dependencies]
+                this = "0.3.0" # hello"#
+            }
+        );
+
+        assert_eq!(
+            change_versions(
+                m.into(),
+                "another",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut HashSet::new()
+            )
+            .unwrap(),
+            indoc! {r#"
+                [dependencies]
+                this = "0.3.0" # hello
+
+                [workspace.dependencies]
+                this = "0.0.1" # hello"#
             }
         );
     }
@@ -862,18 +1251,42 @@ mod test {
         let m = indoc! {r#"
             [dependencies]
             this.workspace = true # hello
+            other.workspace=true# hello
+
+            [dev-dependencies]
+            dev-this.workspace = true # hello
+            dev-other.workspace=true# hello
         "#};
 
         let mut v = Map::new();
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
+        let mut inherited = HashSet::new();
+
         assert_eq!(
-            change_versions(m.into(), "another", &v, false).unwrap(),
+            change_versions(
+                m.into(),
+                "another",
+                &v,
+                ManifestDiscriminant::Package,
+                false,
+                &mut inherited
+            )
+            .unwrap(),
             indoc! {r#"
                 [dependencies]
-                this.workspace = true # hello"#
+                this.workspace = true # hello
+                other.workspace=true# hello
+
+                [dev-dependencies]
+                dev-this.workspace = true # hello
+                dev-other.workspace=true# hello"#
             }
         );
+
+        assert_eq!(inherited.len(), 2);
+        assert!(inherited.contains("this"));
+        assert!(inherited.contains("other"));
     }
 
     #[test]
@@ -887,7 +1300,15 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "another", &v, true).unwrap(),
+            change_versions(
+                m.into(),
+                "another",
+                &v,
+                ManifestDiscriminant::Package,
+                true,
+                &mut HashSet::new()
+            )
+            .unwrap(),
             indoc! {r#"
                 [dependencies]
                 this = { path = "../", version = "=0.3.0" } # hello"#
@@ -906,7 +1327,15 @@ mod test {
         v.insert("this".to_string(), Version::parse("0.3.0").unwrap());
 
         assert_eq!(
-            change_versions(m.into(), "this", &v, true).unwrap(),
+            change_versions(
+                m.into(),
+                "this",
+                &v,
+                ManifestDiscriminant::Package,
+                true,
+                &mut HashSet::new()
+            )
+            .unwrap(),
             indoc! {r#"
                 [dependencies]
                 this = { path = "../", version = "=0.3.0" } # hello"#
@@ -1168,6 +1597,56 @@ mod test {
             indoc! {r#"
                 [dependencies]
                 this.workspace = true # hello"#
+            }
+        );
+    }
+
+    #[test]
+    fn test_name_workspace() {
+        let m = indoc! {r#"
+            [package]
+            name = "this" # hello
+
+            [workspace.package] # cargo doesn't allow name inheritance anyway
+            name = "this" # hello
+
+            [package]
+            name = "this" # hello
+        "#};
+
+        let mut v = Map::new();
+        v.insert("this".to_string(), "ra_this".to_string());
+
+        assert_eq!(
+            rename_packages(m.into(), "this", &v).unwrap(),
+            indoc! {r#"
+                [package]
+                name = "ra_this" # hello
+
+                [workspace.package] # cargo doesn't allow name inheritance anyway
+                name = "this" # hello
+
+                [package]
+                name = "ra_this" # hello"#
+            }
+        );
+    }
+
+    #[test]
+    fn test_name_workspace_dependencies() {
+        let m = indoc! {r#"
+            [workspace.dependencies]
+            this = "0.0.1" # hello
+        "#};
+
+        let mut v = Map::new();
+        v.insert("this".to_string(), "ra_this".to_string());
+
+        assert_eq!(
+            rename_packages(m.into(), "another", &v).unwrap(),
+            indoc! {r#"
+                [workspace.dependencies]
+                this = { version = "0.0.1", package = "ra_this" } # hello"#
             }
         );
     }

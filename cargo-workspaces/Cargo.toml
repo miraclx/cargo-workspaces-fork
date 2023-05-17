@@ -1,10 +1,13 @@
 [package]
 name = "cargo-workspaces"
-version = "0.2.36"
-authors = ["Pavan Kumar Sunkara <pavan.sss1991@gmail.com>"]
+version = "0.3.0"
+authors = [
+  "Pavan Kumar Sunkara <pavan.sss1991@gmail.com>",
+  "Miraculous Owonubi <omiraculous@gmail.com>",
+]
 edition = "2018"
 description = "Cargo workspace manager"
-repository = "https://github.com/pksunkara/cargo-workspaces"
+repository = "https://github.com/miraclx/cargo-workspaces"
 license = "MIT"
 readme = "README.md"
 exclude = ["tests"]
@@ -34,12 +37,13 @@ thiserror = "1.0.16"
 regex = "1.3.7"
 glob = "0.3.0"
 globset = "0.4.10"
-dialoguer = "0.9.0"
+dialoguer = "0.10.4"
 lazy_static = "1.4.0"
 indexmap = "1.6.0"
 crates-index = "0.19.7"
 dunce = "1.0.1"
 ctrlc = "3.2.5"
+toml = "0.7.3"
 
 [dev-dependencies]
 assert_cmd = "1.0"
@@ -48,8 +52,3 @@ indoc = "1.0.3"
 
 [workspace.metadata.workspaces]
 no_individual_tags = true
-
-[patch.crates-io.dialoguer]
-# TODO! blocked awaiting crate update
-git = "https://github.com/mitsuhiko/dialoguer"
-rev = "f9c067bfe711d5a52cb6bac0c128d046d3ade594"

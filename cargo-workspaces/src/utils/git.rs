@@ -38,10 +38,7 @@ pub fn git<'a>(
 #[clap(next_help_heading = "GIT OPTIONS")]
 pub struct GitOpt {
     /// Do not commit version changes
-    #[clap(long, conflicts_with_all = &[
-        "allow-branch", "amend", "message",
-        "git-remote", "no-global-tag"
-    ])]
+    #[clap(long, conflicts_with_all = &["amend", "message", "git-remote", "no-global-tag"])]
     pub no_git_commit: bool,
 
     /// Specify which branches to allow from [default: master]
@@ -115,6 +112,15 @@ pub struct GitOpt {
         forbid_empty_values(true)
     )]
     pub git_remote: String,
+
+    /// Do not perform any git operations
+    #[clap(long, conflicts_with_all = &[
+        "no-git-commit", "allow-branch", "amend", "message", "no-git-tag",
+        "tag-existing", "no-individual-tags", "no-global-tag", "tag-private",
+        "tag-prefix", "individual-tag-prefix", "tag-msg", "individual-tag-msg",
+        "no-git-push", "git-remote"
+    ])]
+    pub no_git: bool,
 }
 
 impl GitOpt {
@@ -123,93 +129,89 @@ impl GitOpt {
         root: &Utf8PathBuf,
         config: &WorkspaceConfig,
     ) -> Result<Option<String>, Error> {
-        let mut ret = None;
+        if self.no_git {
+            return Ok(None);
+        }
+        let (_, out, err) = git(root, &["rev-list", "--count", "--all", "--max-count=1"])?;
 
-        if !self.no_git_commit {
-            let (_, out, err) = git(root, &["rev-list", "--count", "--all", "--max-count=1"])?;
+        if err.contains("not a git repository") {
+            return Err(Error::NotGit);
+        }
 
-            if err.contains("not a git repository") {
-                return Err(Error::NotGit);
-            }
+        if out == "0" {
+            return Err(Error::NoCommits);
+        }
 
-            if out == "0" {
-                return Err(Error::NoCommits);
-            }
+        let (_, branch, _) = git(root, &["rev-parse", "--abbrev-ref", "HEAD"])?;
 
-            let (_, branch, _) = git(root, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+        if branch == "HEAD" {
+            return Err(Error::NotBranch);
+        }
 
-            if branch == "HEAD" {
-                return Err(Error::NotBranch);
-            }
+        // Get the final `allow_branch` value
+        let allow_branch_default_value = String::from("master");
+        let allow_branch = self.allow_branch.as_ref().unwrap_or_else(|| {
+            config
+                .allow_branch
+                .as_ref()
+                .unwrap_or(&allow_branch_default_value)
+        });
 
-            ret = Some(branch.clone());
+        // Treat `main` as `master`
+        let test_branch = if branch == "main" && allow_branch.as_str() == "master" {
+            "master".into()
+        } else {
+            branch.clone()
+        };
 
-            // Get the final `allow_branch` value
-            let allow_branch_default_value = String::from("master");
-            let allow_branch = self.allow_branch.as_ref().unwrap_or_else(|| {
-                config
-                    .allow_branch
-                    .as_ref()
-                    .unwrap_or(&allow_branch_default_value)
+        let pattern = Glob::new(&allow_branch)?;
+
+        if !pattern.compile_matcher().is_match(&test_branch) {
+            return Err(Error::BranchNotAllowed {
+                branch,
+                pattern: pattern.glob().to_string(),
             });
+        }
 
-            // Treat `main` as `master`
-            let test_branch = if branch == "main" && allow_branch.as_str() == "master" {
-                "master".into()
-            } else {
-                branch.clone()
-            };
+        if !self.no_git_push {
+            let remote_branch = format!("{}/{}", self.git_remote, branch);
 
-            let pattern = Glob::new(&allow_branch)?;
+            let (_, out, _) = git(
+                root,
+                &[
+                    "show-ref",
+                    "--verify",
+                    &format!("refs/remotes/{}", remote_branch),
+                ],
+            )?;
 
-            if !pattern.compile_matcher().is_match(&test_branch) {
-                return Err(Error::BranchNotAllowed {
+            if out.is_empty() {
+                return Err(Error::NoRemote {
+                    remote: self.git_remote.clone(),
                     branch,
-                    pattern: pattern.glob().to_string(),
                 });
             }
 
-            if !self.no_git_push {
-                let remote_branch = format!("{}/{}", self.git_remote, branch);
+            git(root, &["remote", "update"])?;
 
-                let (_, out, _) = git(
-                    root,
-                    &[
-                        "show-ref",
-                        "--verify",
-                        &format!("refs/remotes/{}", remote_branch),
-                    ],
-                )?;
+            let (_, out, _) = git(
+                root,
+                &[
+                    "rev-list",
+                    "--left-only",
+                    "--count",
+                    &format!("{}...{}", remote_branch, branch),
+                ],
+            )?;
 
-                if out.is_empty() {
-                    return Err(Error::NoRemote {
-                        remote: self.git_remote.clone(),
-                        branch,
-                    });
-                }
-
-                git(root, &["remote", "update"])?;
-
-                let (_, out, _) = git(
-                    root,
-                    &[
-                        "rev-list",
-                        "--left-only",
-                        "--count",
-                        &format!("{}...{}", remote_branch, branch),
-                    ],
-                )?;
-
-                if out != "0" {
-                    return Err(Error::BehindRemote {
-                        branch,
-                        upstream: remote_branch,
-                    });
-                }
+            if out != "0" {
+                return Err(Error::BehindRemote {
+                    branch,
+                    upstream: remote_branch,
+                });
             }
         }
-
-        Ok(ret)
+        return Ok(Some(branch));
     }
 
     pub fn commit(
@@ -220,6 +222,10 @@ impl GitOpt {
         branch: Option<String>,
         config: &WorkspaceConfig,
     ) -> Result<(), Error> {
+        if self.no_git {
+            return Ok(());
+        }
+
         if !self.no_git_commit {
             info!("version", "committing changes");
 

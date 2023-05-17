@@ -1,6 +1,6 @@
 use crate::utils::{
     cargo, change_versions, is_unversioned, read_config, ChangeData, ChangeOpt, Error, GitOpt,
-    GroupName, Pkg, Result, WorkspaceConfig, INTERNAL_ERR,
+    GroupName, ManifestDiscriminant, Pkg, Result, WorkspaceConfig, INTERNAL_ERR,
 };
 
 use cargo_metadata::Metadata;
@@ -13,7 +13,7 @@ use oclif::{
 use semver::{Identifier, Version, VersionReq};
 
 use std::{
-    collections::{BTreeMap as Map, HashMap},
+    collections::{BTreeMap as Map, HashMap, HashSet},
     fs,
     process::exit,
 };
@@ -158,25 +158,32 @@ impl VersionOpt {
 
         let mut unversioned_deps = HashMap::new();
 
-        for (_, (_, _, new_versions)) in &bumped_pkgs {
-            for (p, new_version, _) in new_versions.iter() {
-                let pkg = metadata
-                    .packages
-                    .iter()
-                    .find(|x| x.name == p.name)
-                    .expect(INTERNAL_ERR);
+        let new_versions = bumped_pkgs
+            .iter()
+            .flat_map(|(_, (_, _, nv))| {
+                nv.iter()
+                    .map(|(pkg, ver, _)| (pkg.name.clone(), ver.clone()))
+            })
+            .collect::<Vec<_>>();
 
-                for dep in pkg.dependencies.iter() {
-                    if let Some((_, v, _)) =
-                        new_versions.iter().find(|(x, _, _)| x.name == dep.name)
-                    {
-                        if is_unversioned(&dep.req) && !is_unversioned(new_version) {
-                            unversioned_deps
-                                .entry(pkg.id.repr.as_str())
-                                .or_insert_with(|| (pkg.name.as_str(), vec![]))
-                                .1
-                                .push((dep.name.as_str(), &dep.req, v));
-                        }
+        for (pkg_name, new_version) in &new_versions {
+            let pkg = metadata
+                .packages
+                .iter()
+                .find(|cargo_pkg| pkg_name == &cargo_pkg.name)
+                .expect(INTERNAL_ERR);
+
+            for dep in pkg.dependencies.iter() {
+                if let Some((_, pkg_ver)) = new_versions
+                    .iter()
+                    .find(|(pkg_name, _)| pkg_name == &dep.name)
+                {
+                    if is_unversioned(&dep.req) && !is_unversioned(new_version) {
+                        unversioned_deps
+                            .entry(pkg.id.repr.as_str())
+                            .or_insert_with(|| (pkg.name.as_str(), vec![]))
+                            .1
+                            .push((dep.name.as_str(), &dep.req, pkg_ver));
                     }
                 }
             }
@@ -186,14 +193,54 @@ impl VersionOpt {
 
         let (new_version, new_versions) = self.confirm_versions(bumped_pkgs)?;
 
+        let mut new_versions_root = Map::new();
+
+        let workspace_root = metadata.workspace_root.join("Cargo.toml");
+        let mut workspace_key = "<workspace>".to_string();
+
         for p in &metadata.packages {
+            let deps = p
+                .dependencies
+                .iter()
+                .filter_map(|dep| {
+                    // todo! make sure the dep path is part of the workspace
+                    dep.path.as_ref().and(new_versions.get(&dep.name).map(|_| {
+                        (
+                            dep.rename.as_ref().unwrap_or(&dep.name).clone(),
+                            dep.name.clone(),
+                        )
+                    }))
+                })
+                .collect::<HashMap<_, _>>();
+
             if new_versions.get(&p.name).is_none()
-                && p.dependencies
+                && deps
                     .iter()
-                    .all(|x| new_versions.get(&x.name).is_none())
+                    .all(|(_key, pkg_name)| new_versions.get(pkg_name).is_none())
             {
                 continue;
             }
+
+            let mut new_versions_sub = deps
+                .into_iter()
+                .map(|(key, pkg_name)| {
+                    (
+                        key,
+                        new_versions.get(&pkg_name).expect(INTERNAL_ERR).1.clone(),
+                    )
+                })
+                .collect::<Map<_, _>>();
+
+            if let Some((_, version)) = new_versions.get(&p.name) {
+                new_versions_sub.insert(p.name.clone(), version.clone());
+                new_versions_root.insert(p.name.clone(), version.clone());
+
+                if p.manifest_path == workspace_root {
+                    workspace_key = p.name.clone();
+                }
+            }
+
+            let mut inherited_pkgs = HashSet::new();
 
             fs::write(
                 &p.manifest_path,
@@ -202,19 +249,54 @@ impl VersionOpt {
                     change_versions(
                         fs::read_to_string(&p.manifest_path)?,
                         &p.name,
-                        &new_versions
-                            .clone()
-                            .into_iter()
-                            .map(|(p, (_, v))| (p, v))
-                            .collect(),
+                        &new_versions_sub,
+                        ManifestDiscriminant::Package,
                         self.exact,
+                        &mut inherited_pkgs,
                     )?
                 ),
             )?;
+
+            new_versions_root.extend(inherited_pkgs.into_iter().filter_map(|pkg_name| {
+                new_versions_sub
+                    .get(&pkg_name)
+                    .map(|version| (pkg_name, version.clone()))
+            }));
         }
 
-        for pkg in new_versions.keys() {
-            let output = cargo(&metadata.workspace_root, &["update", "-p", pkg], &[])?;
+        if let Some(version) = &new_version {
+            new_versions_root.insert(workspace_key.clone(), version.clone());
+        }
+
+        fs::write(
+            &workspace_root,
+            format!(
+                "{}\n",
+                change_versions(
+                    fs::read_to_string(&workspace_root)?,
+                    &workspace_key,
+                    &new_versions_root,
+                    ManifestDiscriminant::Workspace,
+                    self.exact,
+                    &mut HashSet::new(),
+                )?
+            ),
+        )?;
+
+        for (pkg_name, (p, _)) in &new_versions {
+            let output = cargo(
+                &metadata.workspace_root,
+                &[
+                    "update",
+                    "-p",
+                    &format!(
+                        "file://{}#{}",
+                        p.manifest_path.parent().expect(INTERNAL_ERR),
+                        pkg_name
+                    ),
+                ],
+                &[],
+            )?;
 
             if output.1.contains("error:") {
                 return Err(Error::Update);
@@ -262,11 +344,8 @@ impl VersionOpt {
         );
 
         let default_group = changed_pkg_groups.remove_entry(&GroupName::Default);
-        let remaining_groups = changed_pkg_groups
-            .into_iter()
-            .filter(|(group, _)| !matches!(group, GroupName::Default));
 
-        for (group_name, (group_ver, pkgs)) in default_group.into_iter().chain(remaining_groups) {
+        for (group_name, (group_ver, pkgs)) in default_group.into_iter().chain(changed_pkg_groups) {
             let (common_version, new_group_version, new_versions) = loop {
                 match bumped_pkgs.get_mut(&group_name) {
                     Some(pkg) => break pkg,
@@ -373,12 +452,11 @@ impl VersionOpt {
                     let mut items = vec![];
                     for (name, deps) in pkgs.values() {
                         items.push(format!(" │ {}", style(name).green()));
-                        for (dep, ver, new_ver) in deps {
+                        for (dep, _, new_ver) in deps {
+                            items.push(format!(" │  \u{21b3} {}:", style(dep).cyan()));
                             items.push(format!(
-                                " │ \u{21b3} {}: {} => {}",
-                                style(dep).cyan(),
-                                style(ver).yellow(),
-                                style(new_ver).green()
+                                " │     \u{21b3} +{}",
+                                style(format!("version = \"{}\"", new_ver)).green()
                             ));
                         }
                     }
@@ -388,7 +466,7 @@ impl VersionOpt {
                         .default(0)
                         .clear(true)
                         .report(false)
-                        .max_length(10)
+                        .max_length(15)
                         .interact_on_opt(&TERM_ERR)?;
                 }
             }
@@ -415,12 +493,8 @@ impl VersionOpt {
             .as_ref()
             .and_then(|(_, (_, group_version, _))| group_version.clone());
 
-        let remaining_groups = bumped_pkgs
-            .into_iter()
-            .filter(|(group, _)| !matches!(group, GroupName::Default));
-
         for (group, (grp_common_version, _, versions)) in
-            default_group.into_iter().chain(remaining_groups)
+            default_group.into_iter().chain(bumped_pkgs)
         {
             if versions.is_empty() {
                 continue;
@@ -477,13 +551,13 @@ impl VersionOpt {
 
         let prompt = match (group, pkg_name) {
             (GroupName::Custom(group_name), Some(name)) => {
-                format!("for {} in group:{} ", name, group_name)
+                format!("for {} in the group `{}` ", name, group_name)
             }
             (GroupName::Custom(group_name), None) => {
-                format!("for group:{} ", group_name)
+                format!("for the group `{}` ", group_name)
             }
             (_, Some(name)) => format!("for {} ", name),
-            (_, None) => "".to_string(),
+            (_, None) => "for the workspace ".to_string(),
         };
 
         let theme = ColorfulTheme::default();

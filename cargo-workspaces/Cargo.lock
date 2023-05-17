@@ -98,7 +98,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-workspaces"
-version = "0.2.36"
+version = "0.3.0"
 dependencies = [
  "assert_cmd",
  "camino",
@@ -120,6 +120,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "toml",
 ]
 
 [[package]]
@@ -299,11 +300,12 @@ dependencies = [
 
 [[package]]
 name = "dialoguer"
-version = "0.9.0"
-source = "git+https://github.com/mitsuhiko/dialoguer?rev=f9c067bfe711d5a52cb6bac0c128d046d3ade594#f9c067bfe711d5a52cb6bac0c128d046d3ade594"
+version = "0.10.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59c6f2989294b9a498d3ad5491a79c6deb604617378e1cdc4bfc1c1361fe2f87"
 dependencies = [
  "console",
- "lazy_static",
+ "shell-words",
  "tempfile",
  "zeroize",
 ]
@@ -1005,6 +1007,12 @@ dependencies = [
  "cpufeatures",
  "digest",
 ]
+
+[[package]]
+name = "shell-words"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24188a676b6ae68c3b2cb3a01be17fbf7240ce009799bb56d5b1409051e78fde"
 
 [[package]]
 name = "similar"
