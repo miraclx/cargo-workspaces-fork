@@ -2,7 +2,7 @@
 members = ["crates/foo", "crates/bar", "crates/common", "crates/foobar"]
 
 [workspace.dependencies]
-foo = { path = "./crates/foo" }
-bar = { path = "./crates/bar" }
-foobar = { path = "./crates/foobar" }
-common = { path = "./crates/common", package = "libcommon" }
+foo = { path = "./crates/foo", version = "0.2.0" }
+bar = { path = "./crates/bar", version = "0.2.0" }
+foobar = { path = "./crates/foobar", version = "0.2.0" }
+common = { path = "./crates/common", package = "libcommon", version = "0.2.0" }
