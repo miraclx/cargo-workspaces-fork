@@ -3,14 +3,6 @@
 
 Fork of [pksunkara/cargo-workspaces](https://github.com/pksunkara/cargo-workspaces), maintained by [miraclx](https://github.com/miraclx).
 
-Inspired by [Lerna](https://lerna.js.org/).
-
-A tool that optimizes the workflow around cargo workspaces with `git` and `cargo` by providing utilities to
-version, publish, execute commands and more.
-
-I made this to work on [clap](https://github.com/clap-rs/clap) and other projects that rely on workspaces.
-But this will also work on single crates because by default every individual crate is a workspace.
-
 Differences from the upstream repo:
 
 - Allows definition of package versions in the workspace manifest to avoid prompting.
@@ -20,6 +12,22 @@ Differences from the upstream repo:
 - Works on non-git workspaces.
 - Properly discriminates between local and public crates when updating the manifest. (<https://github.com/pksunkara/cargo-workspaces/issues/94>)
 - Allows for the exclusion of crates from being versioned and published.
+
+For an example what using this utility for versioning looks like, see [these examples](https://github.com/miraclx/cargo-workspaces/compare/daa00d4..aad6056):
+
+- [Workspace Inheritance.](https://github.com/miraclx/cargo-workspaces/commit/bff6ceb6184a0234e2d077c0fc468aa59b1194bd)
+- [Crate Conflict.](https://github.com/miraclx/cargo-workspaces/commit/aad6056ae1fda817225f299d0b6e8099fa4b8125)
+- [Root Package Self Inheritance.](https://github.com/miraclx/cargo-workspaces/commit/e237e3171a2935c64e3f34428d1be8b502b4b816)
+
+---
+
+Inspired by [Lerna](https://lerna.js.org/).
+
+A tool that optimizes the workflow around cargo workspaces with `git` and `cargo` by providing utilities to
+version, publish, execute commands and more.
+
+I made this to work on [clap](https://github.com/clap-rs/clap) and other projects that rely on workspaces.
+But this will also work on single crates because by default every individual crate is a workspace.
 
 1. [Installation](#installation)
 2. [Usage](#usage)
