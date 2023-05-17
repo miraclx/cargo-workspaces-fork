@@ -11,6 +11,15 @@ version, publish, execute commands and more.
 I made this to work on [clap](https://github.com/clap-rs/clap) and other projects that rely on workspaces.
 But this will also work on single crates because by default every individual crate is a workspace.
 
+Differences from the upstream repo:
+
+- Allows definition of package versions in the workspace manifest to avoid prompting.
+- Properly supports workspace inheritance.
+- Introduces package groups which allows for versioning and publishing of only a subset of crates in a workspace.
+- Works on non-git workspaces.
+- Properly discriminates between local and public crates when updating the manifest. (<https://github.com/pksunkara/cargo-workspaces/issues/94>)
+- Allows for the exclusion of crates from being versioned and published.
+
 1. [Installation](#installation)
 2. [Usage](#usage)
    1. [Init](#init)
@@ -98,9 +107,9 @@ OPTIONS:
 
 Several aliases are available.
 
-* `cargo ws ls` implies `cargo ws list`
-* `cargo ws ll` implies `cargo ws list --long`
-* `cargo ws la` implies `cargo ws list --all`
+- `cargo ws ls` implies `cargo ws list`
+- `cargo ws ll` implies `cargo ws list --long`
+- `cargo ws la` implies `cargo ws list --all`
 
 ### Changed
 
@@ -338,8 +347,8 @@ OPTIONS:
 
 There are two kinds of configuration options.
 
-* **Workspace**: Options that are specified in the workspace with `[workspace.metadata.workspaces]`
-* **Package**: Options that are specified in the package with `[package.metadata.workspaces]`
+- **Workspace**: Options that are specified in the workspace with `[workspace.metadata.workspaces]`
+- **Package**: Options that are specified in the package with `[package.metadata.workspaces]`
 
 ### Package Configuration
 
@@ -352,12 +361,14 @@ independent = false  # This package should be versioned independently from the r
 
 ```toml
 [workspace.metadata.workspaces]
+version = "0.1.0"                       # Version for this workspace, to avoid prompting
 allow_branch = "master"                 # Specify which branches to allow from [default: master]
 no_individual_tags = false              # Do not tag individual versions for crates
 exclude = [ "./foo", "./bar/*" ]        # List of crates to exclude from actions
 
 [[workspace.metadata.workspaces.group]]
 name = "utils"                          # Name for this group
+version = "0.1.0"                       # Version for this group, to avoid prompting
 members = [ "./utils/a", "./utils/b" ]  # Member crates belonging to this group
 ```
 
