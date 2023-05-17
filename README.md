@@ -16,6 +16,7 @@ Differences from the upstream repo:
 - Allows definition of package versions in the workspace manifest to avoid prompting.
 - Properly supports workspace inheritance.
 - Introduces package groups which allows for versioning and publishing of only a subset of crates in a workspace.
+- Auto-injection of missing inter-dependency versions.
 - Works on non-git workspaces.
 - Properly discriminates between local and public crates when updating the manifest. (<https://github.com/pksunkara/cargo-workspaces/issues/94>)
 - Allows for the exclusion of crates from being versioned and published.

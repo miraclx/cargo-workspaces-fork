@@ -431,52 +431,87 @@ impl VersionOpt {
         if pkgs.is_empty() || self.yes {
             return Ok(());
         }
-        loop {
+        let len_unversioned = pkgs.len();
+        let mut pkgs = Some(&pkgs);
+        let selected = loop {
+            let items: Vec<_> = if let Some(_) = pkgs {
+                &["Review Dependencies", "Auto-version", "Abort"][..]
+            } else {
+                &["Auto-version", "Abort"][..]
+            }
+            .iter()
+            .collect();
+
             match Select::with_theme(&ColorfulTheme::default())
                 .with_prompt(format!(
                     "You have {} packages with unversioned dependencies",
-                    pkgs.len()
+                    len_unversioned
                 ))
-                .items(&["Review Dependencies", "Auto-version", "Abort"])
+                .items(&items)
                 .default(0)
-                .clear(true)
                 .interact_on_opt(&TERM_ERR)?
             {
-                Some(2) | None => exit(0),
-                Some(1) => {
-                    if Confirm::with_theme(&ColorfulTheme::default())
-                        .with_prompt(
-                            "Are you sure you want this tool to auto-inject these versions?",
-                        )
-                        .default(false)
-                        .interact_on(&TERM_ERR)?
-                    {
-                        return Ok(());
-                    }
-                }
-                _ => {
-                    let mut items = vec![];
-                    for (name, deps) in pkgs.values() {
-                        items.push(format!(" │ {}", style(name).green()));
-                        for (dep, _, new_ver) in deps {
-                            items.push(format!(" │  \u{21b3} {}:", style(dep).cyan()));
-                            items.push(format!(
-                                " │     \u{21b3} +{}",
-                                style(format!("version = \"{}\"", new_ver)).green()
-                            ));
+                None => exit(0),
+                Some(mut selected) => {
+                    if let Some(pkgs) = if self.no_pager {
+                        // take, so we only get the list option once
+                        pkgs.take()
+                    } else {
+                        pkgs
+                    } {
+                        if selected == 0 {
+                            if self.no_pager {
+                                for (name, deps) in pkgs.values() {
+                                    TERM_ERR.write_line(&format!(
+                                        " │ {}",
+                                        style(name).green().for_stderr()
+                                    ))?;
+                                    for (dep, _, new_ver) in deps {
+                                        TERM_ERR.write_line(&format!(
+                                            " │  \u{21b3} {}:",
+                                            style(dep).cyan()
+                                        ))?;
+                                        TERM_ERR.write_line(&format!(
+                                            " │     \u{21b3} +{}",
+                                            style(format!("version = \"{}\"", new_ver)).green()
+                                        ))?;
+                                    }
+                                }
+                            } else {
+                                let mut items = vec![];
+                                for (name, deps) in pkgs.values() {
+                                    items.push(format!(" │ {}", style(name).green()));
+                                    for (dep, _, new_ver) in deps {
+                                        items.push(format!(" │  \u{21b3} {}:", style(dep).cyan()));
+                                        items.push(format!(
+                                            " │     \u{21b3} +{}",
+                                            style(format!("version = \"{}\"", new_ver)).green()
+                                        ));
+                                    }
+                                }
+                                Select::new()
+                                    .with_prompt("Packages with unversioned dependencies")
+                                    .items(&items)
+                                    .default(0)
+                                    .clear(true)
+                                    .report(false)
+                                    .max_length(15)
+                                    .interact_on_opt(&TERM_ERR)?;
+                            }
+                            continue;
                         }
+                        selected -= 1;
                     }
-                    Select::new()
-                        .with_prompt("Packages with unversioned dependencies")
-                        .items(&items)
-                        .default(0)
-                        .clear(true)
-                        .report(false)
-                        .max_length(15)
-                        .interact_on_opt(&TERM_ERR)?;
+                    break selected;
                 }
             }
+        };
+
+        if selected == 1 {
+            exit(0)
         }
+
+        Ok(())
     }
 
     fn confirm_versions(
@@ -568,10 +603,10 @@ impl VersionOpt {
 
         let theme = ColorfulTheme::default();
 
-        let selected = loop {
-            let mut selected = if let Some(bump) = &self.bump {
-                bump.selected()
-            } else {
+        let selected = if let Some(bump) = &self.bump {
+            bump.selected()
+        } else {
+            loop {
                 let items = items.iter().map(|x| x.0.as_str());
 
                 let items: Vec<_> = if let Some(_) = group_pkgs {
@@ -583,65 +618,68 @@ impl VersionOpt {
                     items.collect()
                 };
 
-                Select::with_theme(&theme)
+                match Select::with_theme(&theme)
                     .with_prompt(&format!(
                         "Select a new version {}(currently {})",
                         prompt, cur_version
                     ))
                     .items(&items)
                     .default(0)
-                    .interact_on(&TERM_ERR)?
-            };
-
-            if let Some(group_pkgs) = if self.no_pager {
-                // take, so we only get the list option once
-                group_pkgs.take()
-            } else {
-                group_pkgs
-            } {
-                if selected == 0 {
-                    if self.no_pager {
-                        for (i, p) in group_pkgs.iter().enumerate() {
-                            TERM_ERR.write_line(&format!(
-                                " {:>s$} │ {}: {}",
-                                i + 1,
-                                style(&p.name).yellow().for_stderr(),
-                                p.version,
-                                s = (group_pkgs.len() as f32).log10() as usize + 1,
-                            ))?;
+                    .interact_on_opt(&TERM_ERR)?
+                {
+                    None => exit(0),
+                    Some(mut selected) => {
+                        if let Some(group_pkgs) = if self.no_pager {
+                            // take, so we only get the list option once
+                            group_pkgs.take()
+                        } else {
+                            group_pkgs
+                        } {
+                            if selected == 0 {
+                                if self.no_pager {
+                                    for (i, p) in group_pkgs.iter().enumerate() {
+                                        TERM_ERR.write_line(&format!(
+                                            " {:>s$} │ {}: {}",
+                                            i + 1,
+                                            style(&p.name).yellow().for_stderr(),
+                                            p.version,
+                                            s = (group_pkgs.len() as f32).log10() as usize + 1,
+                                        ))?;
+                                    }
+                                } else {
+                                    let group_pkgs = group_pkgs
+                                        .iter()
+                                        .enumerate()
+                                        .map(|(i, p)| {
+                                            format!(
+                                                " {:>s$} │ {}: {}",
+                                                i + 1,
+                                                style(&p.name).yellow().for_stderr(),
+                                                p.version,
+                                                s = (group_pkgs.len() as f32).log10() as usize + 1,
+                                            )
+                                        })
+                                        .collect::<Vec<_>>();
+                                    Select::new()
+                                        .with_prompt(format!(
+                                            "{} packages affected in this group",
+                                            group_pkgs.len()
+                                        ))
+                                        .items(&group_pkgs)
+                                        .default(0)
+                                        .clear(true)
+                                        .report(false)
+                                        .max_length(10)
+                                        .interact_on_opt(&TERM_ERR)?;
+                                }
+                                continue;
+                            }
+                            selected -= 1;
                         }
-                    } else {
-                        let group_pkgs = group_pkgs
-                            .iter()
-                            .enumerate()
-                            .map(|(i, p)| {
-                                format!(
-                                    " {:>s$} │ {}: {}",
-                                    i + 1,
-                                    style(&p.name).yellow().for_stderr(),
-                                    p.version,
-                                    s = (group_pkgs.len() as f32).log10() as usize + 1,
-                                )
-                            })
-                            .collect::<Vec<_>>();
-                        Select::new()
-                            .with_prompt(format!(
-                                "{} packages affected in this group",
-                                group_pkgs.len()
-                            ))
-                            .items(&group_pkgs)
-                            .default(0)
-                            .clear(true)
-                            .report(false)
-                            .max_length(10)
-                            .interact_on_opt(&TERM_ERR)?;
+                        break selected;
                     }
-                    continue;
-                }
-                selected -= 1;
+                };
             }
-
-            break selected;
         };
 
         let new_version = if selected == 6 {
