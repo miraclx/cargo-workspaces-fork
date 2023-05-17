@@ -1,3 +1,5 @@
+<!-- markdownlint-disable MD024 -->
+
 # Changelog
 
 ## Unreleased
@@ -166,11 +168,11 @@
 
 ## 0.2.0
 
-#### Breaking
+### Breaking
 
 - Improved the next version determination for prereleases
 
-#### Enhancements
+### Enhancements
 
 - Added prerelease identifier selection option for versioning
 
@@ -178,25 +180,25 @@
 
 ## 0.1.9
 
-#### Enhancements
+### Enhancements
 
 - Update Cargo.lock for the versioned packages
 
 ## 0.1.8
 
-#### Enhancements
+### Enhancements
 
 - Improved CI usage by implementing prompt skipping
 
 ## 0.1.7
 
-#### Enhancements
+### Enhancements
 
 - Allow versioning for private packages
 
 ## 0.1.5
 
-#### Bug Fixes
+### Bug Fixes
 
 - Verify all the crates first before publishing
 
@@ -204,7 +206,7 @@
 
 ## 0.1.4
 
-#### Enhancements
+### Enhancements
 
 - Annotate generated tags
 
@@ -212,13 +214,13 @@
 
 ## 0.1.3
 
-#### Enhancements
+### Enhancements
 
 - Add readme to crates.io
 
 ## 0.1.2
 
-#### Bug Fixes
+### Bug Fixes
 
 - Fixed path issues with long listing crates on windows
 
