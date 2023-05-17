@@ -78,6 +78,10 @@ pub enum Error {
     EmptyGroup { name: String },
     #[error("the group `{name}` is defined multiple times")]
     DuplicateGroupName { name: String },
+    #[error("the group `{name}` is a reserved group name")]
+    ReservedGroupName { name: String },
+    #[error("{msg}")]
+    InvalidGroupName { msg: String },
     #[error(
         "these group member patterns matched no packages:\n{}",
         .0.iter().map(|(group_name, pkgs)| format!(

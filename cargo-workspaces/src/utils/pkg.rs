@@ -125,6 +125,16 @@ pub enum GroupName {
 }
 
 impl GroupName {
+    pub fn new(name: &str) -> Result<Self> {
+        if let "default" | "excluded" = name {
+            return Err(Error::ReservedGroupName { name: name.into() });
+        }
+        if let Err(msg) = Self::validate(name) {
+            return Err(Error::InvalidGroupName { msg });
+        }
+        Ok(Self::Custom(name.to_owned()))
+    }
+
     pub fn pretty_fmt(&self) -> Option<String> {
         match self {
             GroupName::Default => None,
@@ -141,8 +151,8 @@ impl GroupName {
     pub fn validate(s: &str) -> std::result::Result<(), String> {
         for c in s.bytes() {
             match c {
-                b':' => return Err(format!("invalid character `:` in group name: {}", s)),
-                b' ' => return Err(format!("unexpected space in group name: {}", s)),
+                b':' => return Err(format!("invalid character `:` in group name: `{}`", s)),
+                b' ' => return Err(format!("unexpected space in group name: `{}`", s)),
                 _ => (),
             }
         }
@@ -157,7 +167,7 @@ impl FromStr for GroupName {
         Self::validate(s).map(|_| match s {
             "default" => GroupName::Default,
             "excluded" => GroupName::Excluded,
-            custom => GroupName::Custom(custom.to_string()),
+            custom => GroupName::new(custom).expect(INTERNAL_ERR),
         })
     }
 }
@@ -216,7 +226,7 @@ pub fn get_group_packages(
         ])),
         |mut acc, group| {
             if let Ok(acc) = &mut acc {
-                let group_name = GroupName::Custom(group.name.clone());
+                let group_name = GroupName::new(&group.name)?;
                 if acc.contains_key(&group_name) {
                     return Err(Error::DuplicateGroupName {
                         name: group.name.clone(),
@@ -288,7 +298,7 @@ pub fn get_group_packages(
                     for member in &group.members {
                         if member.matches(&pkg.path) {
                             matched_groups.push((
-                                GroupName::Custom(group.name.clone()),
+                                GroupName::new(&group.name).expect(INTERNAL_ERR),
                                 Some(member.pattern.as_str()),
                             ));
                             break;
@@ -353,7 +363,7 @@ pub fn get_group_packages(
 
     for group in &workspace_config.groups {
         let (_, pkgs) = named_groups
-            .get(&GroupName::Custom(group.name.clone()))
+            .get(&GroupName::new(&group.name).expect(INTERNAL_ERR))
             .expect(INTERNAL_ERR);
         'member: for member in &group.members {
             for (_, pat) in pkgs {

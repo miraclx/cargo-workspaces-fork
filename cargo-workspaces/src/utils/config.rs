@@ -29,7 +29,6 @@ pub struct PackageConfig {
 #[derive(Deserialize, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct WorkspaceGroupSpec {
-    #[serde(deserialize_with = "validate_group_name")]
     pub name: String,
     pub version: Option<Version>,
     #[serde(deserialize_with = "deserialize_members")]
@@ -80,21 +79,6 @@ pub struct WorkspaceConfig {
     pub groups: Vec<WorkspaceGroupSpec>,
     pub allow_branch: Option<String>,
     pub no_individual_tags: Option<bool>,
-}
-
-fn validate_group_name<'de, D>(deserializer: D) -> Result<String, D::Error>
-where
-    D: de::Deserializer<'de>,
-{
-    let group_name = String::deserialize(deserializer)?;
-    utils::GroupName::validate(&group_name).map_err(de::Error::custom)?;
-    if matches!(group_name.as_str(), "excluded" | "default") {
-        return Err(de::Error::custom(format!(
-            "invalid use of reserved group name: {}",
-            group_name
-        )));
-    };
-    Ok(group_name)
 }
 
 fn deserialize_members<'de, D>(deserializer: D) -> Result<Vec<GroupMember>, D::Error>
