@@ -195,7 +195,7 @@ impl VersionOpt {
             }
         }
 
-        self.alert_unversioned(unversioned_deps)?;
+        self.alert_unversioned(unversioned_deps.into_iter().collect())?;
 
         let (new_version, new_versions) = self.confirm_versions(bumped_pkgs)?;
 
@@ -426,11 +426,16 @@ impl VersionOpt {
 
     fn alert_unversioned(
         &self,
-        pkgs: HashMap<&str, (&str, Vec<(&str, &VersionReq, &Version)>)>,
+        mut pkgs: Vec<(&str, (&str, Vec<(&str, &VersionReq, &Version)>))>,
     ) -> Result {
         if pkgs.is_empty() || self.yes {
             return Ok(());
         }
+        pkgs.sort_by(|(_, (a, _)), (_, (b, _))| a.cmp(b));
+        for (_, (_, deps)) in &mut pkgs {
+            deps.sort_by(|(a, _, _), (b, _, _)| a.cmp(b));
+        }
+
         let len_unversioned = pkgs.len();
         let mut pkgs = Some(&pkgs);
         let selected = loop {
@@ -461,7 +466,7 @@ impl VersionOpt {
                     } {
                         if selected == 0 {
                             if self.no_pager {
-                                for (name, deps) in pkgs.values() {
+                                for (_, (name, deps)) in pkgs.iter() {
                                     TERM_ERR.write_line(&format!(
                                         " │ {}",
                                         style(name).green().for_stderr()
@@ -479,7 +484,7 @@ impl VersionOpt {
                                 }
                             } else {
                                 let mut items = vec![];
-                                for (name, deps) in pkgs.values() {
+                                for (_, (name, deps)) in pkgs.iter() {
                                     items.push(format!(" │ {}", style(name).green()));
                                     for (dep, _, new_ver) in deps {
                                         items
