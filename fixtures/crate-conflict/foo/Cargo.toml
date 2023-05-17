@@ -1,10 +1,10 @@
 [package]
 name = "foo"
-version = "0.1.0"
+version = "1.0.0"
 authors = ["Miraculous Owonubi <omiraculous@gmail.com>"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-syn = { path = "../syn", version = "0.1.0" }
+syn = { path = "../syn", version = "1.0.0" }

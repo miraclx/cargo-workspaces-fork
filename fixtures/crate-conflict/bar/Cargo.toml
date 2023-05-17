@@ -1,6 +1,6 @@
 [package]
 name = "bar"
-version = "0.1.0"
+version = "1.0.0"
 authors = ["Miraculous Owonubi <omiraculous@gmail.com>"]
 edition = "2021"
 
