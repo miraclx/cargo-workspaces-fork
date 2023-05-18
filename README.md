@@ -12,6 +12,7 @@ Differences from the upstream repo:
 - Works on non-git workspaces.
 - Properly discriminates between local and public crates when updating the manifest. (<https://github.com/pksunkara/cargo-workspaces/issues/94>)
 - Allows for the exclusion of crates from being versioned and published.
+- Reduces the likelihood of surprising git errors when validating, committing or tagging.
 
 For an example what using this utility for versioning looks like, see [these examples](https://github.com/miraclx/cargo-workspaces/compare/daa00d4..aad6056):
 
@@ -204,12 +205,11 @@ GIT OPTIONS:
         --individual-tag-prefix <prefix>    Customize prefix for individual tags (should contain `%n`) [default: %n@]
     -m, --message <MESSAGE>                 Use a custom commit message when creating the version commit [default: Release %v]
         --no-git                            Do not perform any git operations
-        --no-git-commit                     Do not commit version changes
+        --no-git-commit                     Do not commit version changes, omitting this will tag the current commit
         --no-git-push                       Do not push generated commit and tags to git remote
         --no-git-tag                        Do not tag generated commit
         --no-global-tag                     Do not create a global tag for a workspace
         --no-individual-tags                Do not tag individual versions for crates
-        --tag-existing                      Always tag the most recent commit, even when we don't create one
         --tag-msg <msg>                     Customize tag msg, defaults to tag name (can contain `%v`)
         --tag-prefix <prefix>               Customize tag prefix (can be empty) [default: v]
         --tag-private                       Also tag individual versions of private packages
@@ -315,12 +315,11 @@ GIT OPTIONS:
         --individual-tag-prefix <prefix>    Customize prefix for individual tags (should contain `%n`) [default: %n@]
     -m, --message <MESSAGE>                 Use a custom commit message when creating the version commit [default: Release %v]
         --no-git                            Do not perform any git operations
-        --no-git-commit                     Do not commit version changes
+        --no-git-commit                     Do not commit version changes, omitting this will tag the current commit
         --no-git-push                       Do not push generated commit and tags to git remote
         --no-git-tag                        Do not tag generated commit
         --no-global-tag                     Do not create a global tag for a workspace
         --no-individual-tags                Do not tag individual versions for crates
-        --tag-existing                      Always tag the most recent commit, even when we don't create one
         --tag-msg <msg>                     Customize tag msg, defaults to tag name (can contain `%v`)
         --tag-prefix <prefix>               Customize tag prefix (can be empty) [default: v]
         --tag-private                       Also tag individual versions of private packages

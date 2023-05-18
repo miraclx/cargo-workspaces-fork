@@ -36,7 +36,7 @@ pub fn git<'a>(
 #[derive(Debug, Parser)]
 #[clap(next_help_heading = "GIT OPTIONS")]
 pub struct GitOpt {
-    /// Do not commit version changes
+    /// Do not commit version changes, omitting this will tag the current commit
     #[clap(long, conflicts_with_all = &["amend", "message", "allow-branch"])]
     pub no_git_commit: bool,
 
