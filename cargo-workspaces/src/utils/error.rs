@@ -136,8 +136,8 @@ pub enum Error {
     NoCommits,
     #[error("not on a git branch")]
     NotBranch,
-    #[error("remote {remote} not found or branch {branch} not in {remote}")]
-    NoRemote { remote: String, branch: String },
+    #[error("remote {remote} not found")]
+    NoRemote { remote: String },
     #[error("local branch {branch} is behind upstream {upstream}")]
     BehindRemote { upstream: String, branch: String },
     #[error("not allowed to run on branch {branch} because it doesn't match pattern {pattern}")]
@@ -190,9 +190,8 @@ impl CliError for Error {
             Self::WorkspaceRootNotDir(path) => {
                 Self::WorkspaceRootNotDir(format!("{}", ERR_YELLOW.apply_to(path)))
             }
-            Self::NoRemote { remote, branch } => Self::NoRemote {
+            Self::NoRemote { remote } => Self::NoRemote {
                 remote: format!("{}", ERR_YELLOW.apply_to(remote)),
-                branch: format!("{}", ERR_YELLOW.apply_to(branch)),
             },
             Self::BehindRemote { upstream, branch } => Self::BehindRemote {
                 upstream: format!("{}", ERR_YELLOW.apply_to(upstream)),

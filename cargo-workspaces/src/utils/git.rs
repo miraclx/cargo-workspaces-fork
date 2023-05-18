@@ -145,7 +145,25 @@ impl GitOpt {
 
         let (_, branch, _) = git(root, &["rev-parse", "--abbrev-ref", "HEAD"])?;
 
+        let (_, out, _) = git(
+            root,
+            &[
+                "for-each-ref",
+                "--format='%(refname)'",
+                &format!("refs/remotes/{}", self.git_remote),
+            ],
+        )?;
+
+        if out.is_empty() {
+            return Err(Error::NoRemote {
+                remote: self.git_remote.clone(),
+            });
+        }
+
         if branch == "HEAD" {
+            if self.no_git_commit {
+                return Ok(None);
+            }
             return Err(Error::NotBranch);
         }
 
@@ -174,43 +192,25 @@ impl GitOpt {
             });
         }
 
-        if !self.no_git_push {
-            let remote_branch = format!("{}/{}", self.git_remote, branch);
+        let remote_branch = format!("{}/{}", self.git_remote, branch);
 
-            let (_, out, _) = git(
-                root,
-                &[
-                    "show-ref",
-                    "--verify",
-                    &format!("refs/remotes/{}", remote_branch),
-                ],
-            )?;
+        git(root, &["remote", "update"])?;
 
-            if out.is_empty() {
-                return Err(Error::NoRemote {
-                    remote: self.git_remote.clone(),
-                    branch,
-                });
-            }
+        let (_, out, _) = git(
+            root,
+            &[
+                "rev-list",
+                "--left-only",
+                "--count",
+                &format!("{}...{}", remote_branch, branch),
+            ],
+        )?;
 
-            git(root, &["remote", "update"])?;
-
-            let (_, out, _) = git(
-                root,
-                &[
-                    "rev-list",
-                    "--left-only",
-                    "--count",
-                    &format!("{}...{}", remote_branch, branch),
-                ],
-            )?;
-
-            if out != "0" {
-                return Err(Error::BehindRemote {
-                    branch,
-                    upstream: remote_branch,
-                });
-            }
+        if out != "0" {
+            return Err(Error::BehindRemote {
+                branch,
+                upstream: remote_branch,
+            });
         }
         return Ok(Some(branch));
     }
