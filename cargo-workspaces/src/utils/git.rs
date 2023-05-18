@@ -1,6 +1,4 @@
-use crate::utils::{
-    debug, info, validate_value_containing_name, Error, Pkg, WorkspaceConfig, INTERNAL_ERR,
-};
+use crate::utils::{debug, info, validate_value_containing_name, Error, Pkg, WorkspaceConfig};
 
 use camino::Utf8PathBuf;
 use clap::Parser;
@@ -38,7 +36,7 @@ pub fn git<'a>(
 #[clap(next_help_heading = "GIT OPTIONS")]
 pub struct GitOpt {
     /// Do not commit version changes
-    #[clap(long, conflicts_with_all = &["amend", "message", "git-remote", "no-global-tag"])]
+    #[clap(long, conflicts_with_all = &["amend", "message", "allow-branch"])]
     pub no_git_commit: bool,
 
     /// Specify which branches to allow from [default: master]
@@ -59,12 +57,8 @@ pub struct GitOpt {
     pub message: Option<String>,
 
     /// Do not tag generated commit
-    #[clap(long, conflicts_with_all = &["tag-existing", "tag-prefix", "individual-tag-prefix", "no-individual-tags"])]
+    #[clap(long, conflicts_with_all = &["tag-msg", "tag-prefix", "tag-private", "individual-tag-prefix", "individual-tag-msg", "no-individual-tags", "no-global-tag"])]
     pub no_git_tag: bool,
-
-    /// Always tag the most recent commit, even when we don't create one
-    #[clap(long, conflicts_with_all = &["no-git-tag"])]
-    pub tag_existing: bool,
 
     /// Do not tag individual versions for crates
     #[clap(long, conflicts_with_all = &["individual-tag-prefix"])]
@@ -114,12 +108,7 @@ pub struct GitOpt {
     pub git_remote: String,
 
     /// Do not perform any git operations
-    #[clap(long, conflicts_with_all = &[
-        "no-git-commit", "allow-branch", "amend", "message", "no-git-tag",
-        "tag-existing", "no-individual-tags", "no-global-tag", "tag-private",
-        "tag-prefix", "individual-tag-prefix", "tag-msg", "individual-tag-msg",
-        "no-git-push", "git-remote"
-    ])]
+    #[clap(long, exclusive = true)]
     pub no_git: bool,
 }
 
@@ -270,7 +259,7 @@ impl GitOpt {
             }
         }
 
-        if (!self.no_git_commit || self.tag_existing) && !self.no_git_tag {
+        if !self.no_git_tag {
             info!("version", "tagging");
 
             if !self.no_global_tag {
