@@ -111,9 +111,9 @@ impl ChangeOpt {
 
             let mut changed_files = changed_files
                 .split('\n')
-                .filter(|f| {
-                    !matches!(&ignore_changes, Some(pattern) if pattern.compile_matcher().is_match(f))
-                })
+                .map(|f| f.trim())
+                .filter(|f| !f.is_empty())
+                .filter(|f| !matches!(&ignore_changes, Some(pattern) if pattern.compile_matcher().is_match(f)))
                 .map(|p| (Path::new(p), false))
                 .collect::<Vec<_>>();
 
