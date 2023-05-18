@@ -192,9 +192,9 @@ impl GitOpt {
             });
         }
 
-        let remote_branch = format!("{}/{}", self.git_remote, branch);
+        git(root, &["remote", "update", &self.git_remote])?;
 
-        git(root, &["remote", "update"])?;
+        let remote_branch = format!("{}/{}", self.git_remote, branch);
 
         let (_, out, _) = git(
             root,
@@ -212,6 +212,7 @@ impl GitOpt {
                 upstream: remote_branch,
             });
         }
+
         return Ok(Some(branch));
     }
 
