@@ -3,6 +3,7 @@ use crate::utils::{debug, info, validate_value_containing_name, Error, Pkg, Work
 use camino::Utf8PathBuf;
 use clap::Parser;
 use globset::Glob;
+use oclif::term::ERR_YELLOW;
 use semver::Version;
 
 use std::{
@@ -355,7 +356,10 @@ impl GitOpt {
                 return Err(Error::NotTagged(tag.to_string(), tagged.1, tagged.2));
             }
         } else {
-            info!("version", "tag already exists");
+            info!(
+                "version",
+                format!("tag {} already exists", ERR_YELLOW.apply_to(tag))
+            );
         }
         Ok(())
     }
