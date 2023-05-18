@@ -259,6 +259,7 @@ impl GitOpt {
             }
         }
 
+        let mut tags = vec![];
         if !self.no_git_tag {
             info!("version", "tagging");
 
@@ -294,6 +295,7 @@ impl GitOpt {
                     }
 
                     self.tag(root, &tag, &msgs)?;
+                    tags.push(tag);
                 }
             }
 
@@ -306,17 +308,31 @@ impl GitOpt {
                             msg.replace("%n", &p.name).replace("%v", &v.to_string())
                         });
                         self.tag(root, &tag, &[msg])?;
+                        tags.push(tag);
                     }
                 }
             }
         }
 
         if !self.no_git_push {
-            let branch = branch.expect(INTERNAL_ERR);
+            let mut rest = vec![];
+            if let Some(branch) = &branch {
+                rest.push(branch as _);
+            }
+            if !tags.is_empty() {
+                rest.push("tag");
+                rest.extend(tags.iter().map(|x| x.as_str()));
+            }
+            if rest.is_empty() {
+                return Ok(());
+            }
 
             info!("git", "pushing");
 
-            let pushed = git(root, &["push", "--follow-tags", &self.git_remote, &branch])?;
+            let mut args = vec!["push", "--no-follow-tags", &self.git_remote];
+            args.extend(rest);
+
+            let pushed = git(root, &args)?;
 
             if !pushed.0.success() {
                 return Err(Error::NotPushed(pushed.1, pushed.2));
