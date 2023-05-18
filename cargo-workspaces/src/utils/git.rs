@@ -129,9 +129,10 @@ impl GitOpt {
         root: &Utf8PathBuf,
         config: &WorkspaceConfig,
     ) -> Result<Option<String>, Error> {
-        if self.no_git || self.no_git_push {
+        if self.no_git || self.no_git_push || (self.no_git_commit && self.no_git_tag) {
             return Ok(None);
         }
+
         let (_, out, err) = git(root, &["rev-list", "--count", "--all", "--max-count=1"])?;
 
         if err.contains("not a git repository") {
