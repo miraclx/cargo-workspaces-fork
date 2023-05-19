@@ -262,8 +262,6 @@ impl GitOpt {
 
         let mut tags = vec![];
         if !self.no_git_tag {
-            info!("version", "tagging");
-
             if !self.no_global_tag {
                 if let Some(version) = new_version {
                     let tag = format!("{}{}", &self.tag_prefix, version);
@@ -350,6 +348,8 @@ impl GitOpt {
             for msg in msgs {
                 args.extend(&["-m", &msg]);
             }
+            info!("version", format!("tagging {}", ERR_YELLOW.apply_to(tag)));
+
             let tagged = git(root, &args)?;
 
             if !tagged.0.success() {
