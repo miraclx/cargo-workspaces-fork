@@ -11,9 +11,19 @@ pub struct Version {
 
 impl Version {
     pub fn run(self, metadata: Metadata) -> Result {
-        self.version.do_versioning(&metadata)?;
+        if let Some((config, tags, _)) = self.version.do_versioning(&metadata)? {
+            let branch = self
+                .version
+                .git
+                .validate(&metadata.workspace_root, &config)?;
+
+            self.version
+                .git
+                .push(&metadata.workspace_root, &branch, &tags)?;
+        }
 
         info!("success", "ok");
+
         Ok(())
     }
 }

@@ -94,9 +94,12 @@ pub struct VersionOpt {
 }
 
 impl VersionOpt {
-    pub fn do_versioning(&self, metadata: &Metadata) -> Result<Map<String, (Pkg, Version)>> {
+    pub fn do_versioning(
+        &self,
+        metadata: &Metadata,
+    ) -> Result<Option<(WorkspaceConfig, Vec<String>, Map<String, (Pkg, Version)>)>> {
         let config: WorkspaceConfig = read_config(&metadata.workspace_metadata)?;
-        let branch = self.git.validate(&metadata.workspace_root, &config)?;
+
         if self.git.no_git_commit && !self.git.no_git_tag {
             info!("tagging the current commit", "");
         }
@@ -106,7 +109,7 @@ impl VersionOpt {
 
             if self.change.force.is_none() && change_data.count == "0" && !change_data.dirty {
                 TERM_OUT.write_line("Current HEAD is already released, skipping versioning")?;
-                return Ok(Map::new());
+                return Ok(None);
             }
 
             change_data.since
@@ -124,7 +127,7 @@ impl VersionOpt {
 
         if changed_p.is_empty() {
             TERM_OUT.write_line("No changes detected, skipping versioning")?;
-            return Ok(Map::new());
+            return Ok(None);
         }
 
         let mut bumped_pkgs = HashMap::new();
@@ -162,7 +165,7 @@ impl VersionOpt {
             TERM_OUT.write_line(
                 "Changes detected but the versions weren't bumped, skipping versioning",
             )?;
-            return Ok(Map::new());
+            return Ok(None);
         }
 
         let mut unversioned_deps = HashMap::new();
@@ -312,15 +315,14 @@ impl VersionOpt {
             }
         }
 
-        self.git.commit(
+        let tags = self.git.commit(
             &metadata.workspace_root,
             &new_version,
             &new_versions,
-            branch,
             &config,
         )?;
 
-        Ok(new_versions)
+        Ok(Some((config, tags, new_versions)))
     }
 
     fn get_new_versions(

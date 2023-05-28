@@ -42,22 +42,24 @@ pub struct Publish {
 
 impl Publish {
     pub fn run(self, metadata: Metadata) -> Result {
+        let mut git_data = None;
         let pkgs = if !self.from_git {
-            self.version
-                .do_versioning(&metadata)?
-                .iter()
-                .map(|x| {
-                    (
+            let mut new_versions = vec![];
+            if let Some((branch, tags, _new_versions)) = self.version.do_versioning(&metadata)? {
+                git_data = Some((branch, tags));
+                for (pkg_name, (_, ver)) in _new_versions {
+                    new_versions.push((
                         metadata
                             .packages
                             .iter()
-                            .find(|y| x.0 == &y.name)
+                            .find(|y| pkg_name == y.name)
                             .expect(INTERNAL_ERR)
                             .clone(),
-                        x.1 .1.to_string(),
-                    )
-                })
-                .collect::<Vec<_>>()
+                        ver.to_string(),
+                    ));
+                }
+            }
+            new_versions
         } else {
             metadata
                 .packages
@@ -134,6 +136,17 @@ impl Publish {
             check_index(&mut index, &name, version)?;
 
             info!("published", name_ver);
+        }
+
+        if let Some((config, tags)) = git_data {
+            let branch = self
+                .version
+                .git
+                .validate(&metadata.workspace_root, &config)?;
+
+            self.version
+                .git
+                .push(&metadata.workspace_root, &branch, &tags)?;
         }
 
         info!("success", "ok");

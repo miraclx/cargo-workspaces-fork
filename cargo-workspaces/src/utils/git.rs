@@ -211,11 +211,10 @@ impl GitOpt {
         root: &Utf8PathBuf,
         new_version: &Option<Version>,
         new_versions: &Map<String, (Pkg, Version)>,
-        branch: Option<String>,
         config: &WorkspaceConfig,
-    ) -> Result<(), Error> {
+    ) -> Result<Vec<String>, Error> {
         if self.no_git {
-            return Ok(());
+            return Ok(vec![]);
         }
 
         if !self.no_git_commit {
@@ -313,29 +312,40 @@ impl GitOpt {
             }
         }
 
-        if !self.no_git_push {
-            let mut rest = vec![];
-            if let Some(branch) = &branch {
-                rest.push(branch as _);
-            }
-            if !tags.is_empty() {
-                rest.push("tag");
-                rest.extend(tags.iter().map(|x| x.as_str()));
-            }
-            if rest.is_empty() {
-                return Ok(());
-            }
+        Ok(tags)
+    }
 
-            info!("git", "pushing");
+    pub fn push(
+        &self,
+        root: &Utf8PathBuf,
+        branch: &Option<String>,
+        tags: &Vec<String>,
+    ) -> Result<(), Error> {
+        if self.no_git_push {
+            return Ok(());
+        }
 
-            let mut args = vec!["push", "--no-follow-tags", &self.git_remote];
-            args.extend(rest);
+        let mut rest = vec![];
+        if let Some(branch) = &branch {
+            rest.push(branch as _);
+        }
+        if !tags.is_empty() {
+            rest.push("tag");
+            rest.extend(tags.iter().map(|x| x.as_str()));
+        }
+        if rest.is_empty() {
+            return Ok(());
+        }
 
-            let pushed = git(root, &args)?;
+        info!("git", "pushing");
 
-            if !pushed.0.success() {
-                return Err(Error::NotPushed(pushed.1, pushed.2));
-            }
+        let mut args = vec!["push", "--no-follow-tags", &self.git_remote];
+        args.extend(rest);
+
+        let pushed = git(root, &args)?;
+
+        if !pushed.0.success() {
+            return Err(Error::NotPushed(pushed.1, pushed.2));
         }
 
         Ok(())
