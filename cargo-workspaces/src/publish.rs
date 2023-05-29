@@ -1,6 +1,6 @@
 use crate::utils::{
-    cargo, cargo_config_get, check_index, dag, info, is_published, Error, Result, VersionOpt,
-    INTERNAL_ERR,
+    cargo, cargo_config_get, check_index, dag, info, is_published, read_config, Error, Result,
+    VersionOpt, INTERNAL_ERR,
 };
 use cargo_metadata::Metadata;
 use clap::Parser;
@@ -42,29 +42,37 @@ pub struct Publish {
 
 impl Publish {
     pub fn run(self, metadata: Metadata) -> Result {
-        let mut git_data = None;
+        let config = read_config(&metadata.workspace_metadata)?;
+
+        let mut versions = None;
+        let branch = self
+            .version
+            .git
+            .validate(&metadata.workspace_root, &config)?;
+
         let pkgs = if !self.from_git {
             let mut new_versions = vec![];
-            if let Some((branch, tags, _new_versions)) = self.version.do_versioning(&metadata)? {
-                git_data = Some((branch, tags));
-                for (pkg_name, (_, ver)) in _new_versions {
+            if let Some((new_version, _new_versions)) =
+                self.version.do_versioning(&metadata, &config)?
+            {
+                for (_, (pkg, ver)) in &_new_versions {
                     new_versions.push((
                         metadata
                             .packages
                             .iter()
-                            .find(|y| pkg_name == y.name)
-                            .expect(INTERNAL_ERR)
-                            .clone(),
-                        ver.to_string(),
+                            .find(|y| pkg.id == y.id)
+                            .expect(INTERNAL_ERR),
+                        ver.clone(),
                     ));
                 }
+                versions = Some((new_version, _new_versions));
             }
             new_versions
         } else {
             metadata
                 .packages
                 .iter()
-                .map(|x| (x.clone(), x.version.to_string()))
+                .map(|x| (x, x.version.clone()))
                 .collect()
         };
 
@@ -74,7 +82,7 @@ impl Publish {
         let visited = visited
             .into_iter()
             .filter(|x| {
-                if let Some((pkg, _)) = pkgs.iter().find(|(p, _)| p.manifest_path == *x) {
+                if let Some((pkg, _)) = pkgs.iter().find(|(p, _)| p.manifest_path == **x) {
                     return pkg.publish.is_none()
                         || !pkg.publish.as_ref().expect(INTERNAL_ERR).is_empty();
                 }
@@ -83,6 +91,7 @@ impl Publish {
             })
             .collect::<Set<_>>();
 
+        let mut tags = vec![];
         for p in &visited {
             let (pkg, version) = names.get(p).expect(INTERNAL_ERR);
             let name = pkg.name.clone();
@@ -101,7 +110,9 @@ impl Publish {
                     Index::new_cargo_default()?
                 };
 
-            if is_published(&mut index, &name, version)? {
+            let version = version.to_string();
+
+            if is_published(&mut index, &name, &version)? {
                 info!("already published", name_ver);
                 continue;
             }
@@ -133,16 +144,29 @@ impl Publish {
                 return Err(Error::Publish(name));
             }
 
-            check_index(&mut index, &name, version)?;
+            check_index(&mut index, &name, &version)?;
 
             info!("published", name_ver);
+
+            if let Some(tag) = self.version.git.individual_tag(
+                &metadata.workspace_root,
+                &pkg.name,
+                pkg.publish.as_ref().map_or(false, Vec::is_empty),
+                &version,
+                &config,
+            )? {
+                tags.push(tag)
+            }
         }
 
-        if let Some((config, tags)) = git_data {
-            let branch = self
-                .version
-                .git
-                .validate(&metadata.workspace_root, &config)?;
+        if let Some((Some(new_version), new_versions)) = versions {
+            if let Some(tag) = self.version.git.global_tag(
+                &metadata.workspace_root,
+                &new_version,
+                &new_versions,
+            )? {
+                tags.push(tag)
+            }
 
             self.version
                 .git

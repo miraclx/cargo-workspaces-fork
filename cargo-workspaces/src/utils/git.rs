@@ -57,7 +57,7 @@ pub struct GitOpt {
     )]
     pub message: Option<String>,
 
-    /// Do not tag generated commit
+    /// Do not tag generated commit (implies --no-individual-tags and --no-global-tag)
     #[clap(long, conflicts_with_all = &["tag-msg", "tag-prefix", "tag-private", "individual-tag-prefix", "individual-tag-msg", "no-individual-tags", "no-global-tag"])]
     pub no_git_tag: bool,
 
@@ -73,7 +73,7 @@ pub struct GitOpt {
     #[clap(long)]
     pub tag_private: bool,
 
-    /// Customize tag prefix (can be empty)
+    /// Customize tag prefix for global tags (can be empty)
     #[clap(long, default_value = "v", value_name = "prefix")]
     pub tag_prefix: String,
 
@@ -108,7 +108,7 @@ pub struct GitOpt {
     )]
     pub git_remote: String,
 
-    /// Do not perform any git operations
+    /// Do not perform any git operations (implies --no-git-commit and --no-git-tag)
     #[clap(long, exclusive = true)]
     pub no_git: bool,
 }
@@ -119,7 +119,7 @@ impl GitOpt {
         root: &Utf8PathBuf,
         config: &WorkspaceConfig,
     ) -> Result<Option<String>, Error> {
-        if self.no_git || self.no_git_push || (self.no_git_commit && self.no_git_tag) {
+        if self.no_git {
             return Ok(None);
         }
 
@@ -133,7 +133,12 @@ impl GitOpt {
             return Err(Error::NoCommits);
         }
 
-        let (_, branch, _) = git(root, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+        if self.no_git_push
+            || (self.no_git_commit
+                && (self.no_git_tag || (self.no_global_tag && self.no_individual_tags)))
+        {
+            return Ok(None);
+        }
 
         let (_, out, _) = git(
             root,
@@ -149,6 +154,8 @@ impl GitOpt {
                 remote: self.git_remote.clone(),
             });
         }
+
+        let (_, branch, _) = git(root, &["rev-parse", "--abbrev-ref", "HEAD"])?;
 
         if branch == "HEAD" {
             if self.no_git_commit {
@@ -211,108 +218,127 @@ impl GitOpt {
         root: &Utf8PathBuf,
         new_version: &Option<Version>,
         new_versions: &Map<String, (Pkg, Version)>,
+    ) -> Result<(), Error> {
+        if self.no_git || self.no_git_commit {
+            return Ok(());
+        }
+
+        info!("git", "committing changes");
+
+        let added = git(root, &["add", "-u"])?;
+
+        if !added.0.success() {
+            return Err(Error::NotAdded(added.1, added.2));
+        }
+
+        let mut args = vec!["commit".to_string()];
+
+        if self.amend {
+            args.push("--amend".to_string());
+            args.push("--no-edit".to_string());
+        } else {
+            args.push("-m".to_string());
+
+            let mut msg = "Release %v";
+
+            if let Some(supplied) = &self.message {
+                msg = supplied;
+            }
+
+            let mut msg = self.commit_msg(msg, new_versions);
+
+            msg = msg.replace(
+                "%v",
+                &new_version
+                    .as_ref()
+                    .map_or("independent packages".to_string(), |x| format!("{}", x)),
+            );
+
+            args.push(msg);
+        }
+
+        let committed = git(root, &args.iter().map(|x| x.as_str()).collect::<Vec<_>>())?;
+
+        if !committed.0.success() {
+            return Err(Error::NotCommitted(committed.1, committed.2));
+        }
+
+        Ok(())
+    }
+
+    pub fn global_tag(
+        &self,
+        root: &Utf8PathBuf,
+        new_version: &Version,
+        new_versions: &Map<String, (Pkg, Version)>,
+    ) -> Result<Option<String>, Error> {
+        if self.no_git || self.no_git_tag || self.no_global_tag {
+            return Ok(None);
+        }
+
+        let tag = format!("{}{}", &self.tag_prefix, new_version);
+        let mut msgs = Vec::with_capacity(self.tag_msg.capacity().max(1));
+        for msg in &self.tag_msg {
+            let mut s = String::new();
+            for (i, scope) in msg.split("%{").enumerate() {
+                if i == 0 {
+                    s.push_str(scope);
+                    continue;
+                }
+                let (template, rest) = scope
+                    .split_once("}")
+                    .ok_or_else(|| Error::UnterminatedTagMsgScope(msg.clone()))?;
+                for (_, (p, version)) in new_versions.iter() {
+                    if p.private || self.tag_private {
+                        s.push_str(
+                            &template
+                                .replace("%n", &p.name)
+                                .replace("%v", &version.to_string()),
+                        );
+                    }
+                }
+                s.push_str(rest);
+            }
+            msgs.push(s.replace("%v", &new_version.to_string()));
+        }
+        if msgs.is_empty() {
+            msgs.push(tag.clone());
+        }
+
+        self.tag(root, &tag, &msgs)?;
+
+        Ok(Some(tag))
+    }
+
+    pub fn individual_tag(
+        &self,
+        root: &Utf8PathBuf,
+        pkg_name: &str,
+        is_private: bool,
+        new_version: &str,
         config: &WorkspaceConfig,
-    ) -> Result<Vec<String>, Error> {
-        if self.no_git {
-            return Ok(vec![]);
+    ) -> Result<Option<String>, Error> {
+        if self.no_git
+            || self.no_git_tag
+            || self.no_individual_tags
+            || config.no_individual_tags.unwrap_or_default()
+            || (is_private && !self.tag_private)
+        {
+            return Ok(None);
         }
 
-        if !self.no_git_commit {
-            info!("version", "committing changes");
+        let tag = format!(
+            "{}{}",
+            self.individual_tag_prefix.replace("%n", pkg_name),
+            new_version
+        );
+        let msg = self.individual_tag_msg.as_ref().map_or(tag.clone(), |msg| {
+            msg.replace("%n", pkg_name).replace("%v", new_version)
+        });
 
-            let added = git(root, &["add", "-u"])?;
+        self.tag(root, &tag, &[msg])?;
 
-            if !added.0.success() {
-                return Err(Error::NotAdded(added.1, added.2));
-            }
-
-            let mut args = vec!["commit".to_string()];
-
-            if self.amend {
-                args.push("--amend".to_string());
-                args.push("--no-edit".to_string());
-            } else {
-                args.push("-m".to_string());
-
-                let mut msg = "Release %v";
-
-                if let Some(supplied) = &self.message {
-                    msg = supplied;
-                }
-
-                let mut msg = self.commit_msg(msg, new_versions);
-
-                msg = msg.replace(
-                    "%v",
-                    &new_version
-                        .as_ref()
-                        .map_or("independent packages".to_string(), |x| format!("{}", x)),
-                );
-
-                args.push(msg);
-            }
-
-            let committed = git(root, &args.iter().map(|x| x.as_str()).collect::<Vec<_>>())?;
-
-            if !committed.0.success() {
-                return Err(Error::NotCommitted(committed.1, committed.2));
-            }
-        }
-
-        let mut tags = vec![];
-        if !self.no_git_tag {
-            if !self.no_global_tag {
-                if let Some(version) = new_version {
-                    let tag = format!("{}{}", &self.tag_prefix, version);
-                    let mut msgs = Vec::with_capacity(self.tag_msg.capacity().max(1));
-                    for msg in &self.tag_msg {
-                        let mut s = String::new();
-                        for (i, scope) in msg.split("%{").enumerate() {
-                            if i == 0 {
-                                s.push_str(scope);
-                                continue;
-                            }
-                            let (template, rest) = scope
-                                .split_once("}")
-                                .ok_or_else(|| Error::UnterminatedTagMsgScope(msg.clone()))?;
-                            for (_, (p, v)) in new_versions {
-                                if !p.private || self.tag_private {
-                                    s.push_str(
-                                        &template
-                                            .replace("%n", &p.name)
-                                            .replace("%v", &v.to_string()),
-                                    );
-                                }
-                            }
-                            s.push_str(rest);
-                        }
-                        msgs.push(s.replace("%v", &version.to_string()));
-                    }
-                    if msgs.is_empty() {
-                        msgs.push(tag.clone());
-                    }
-
-                    self.tag(root, &tag, &msgs)?;
-                    tags.push(tag);
-                }
-            }
-
-            if !(self.no_individual_tags || config.no_individual_tags.unwrap_or_default()) {
-                for (_, (p, v)) in new_versions {
-                    if !p.private || self.tag_private {
-                        let tag =
-                            format!("{}{}", self.individual_tag_prefix.replace("%n", &p.name), v);
-                        let msg = self.individual_tag_msg.as_ref().map_or(tag.clone(), |msg| {
-                            msg.replace("%n", &p.name).replace("%v", &v.to_string())
-                        });
-                        self.tag(root, &tag, &[msg])?;
-                        tags.push(tag);
-                    }
-                }
-            }
-        }
-
-        Ok(tags)
+        Ok(Some(tag))
     }
 
     pub fn push(
@@ -321,7 +347,7 @@ impl GitOpt {
         branch: &Option<String>,
         tags: &Vec<String>,
     ) -> Result<(), Error> {
-        if self.no_git_push {
+        if self.no_git || self.no_git_push {
             return Ok(());
         }
 
@@ -358,7 +384,7 @@ impl GitOpt {
             for msg in msgs {
                 args.extend(&["-m", &msg]);
             }
-            info!("version", format!("tagging {}", ERR_YELLOW.apply_to(tag)));
+            info!("git", format!("tagging {}", ERR_YELLOW.apply_to(tag)));
 
             let tagged = git(root, &args)?;
 
@@ -367,7 +393,7 @@ impl GitOpt {
             }
         } else {
             info!(
-                "version",
+                "git",
                 format!("tag {} already exists", ERR_YELLOW.apply_to(tag))
             );
         }

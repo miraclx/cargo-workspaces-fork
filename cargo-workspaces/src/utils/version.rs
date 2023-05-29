@@ -1,6 +1,6 @@
 use crate::utils::{
-    cargo, change_versions, info, is_unversioned, read_config, ChangeData, ChangeOpt, Error,
-    GitOpt, GroupName, ManifestDiscriminant, Pkg, Result, WorkspaceConfig, INTERNAL_ERR,
+    cargo, change_versions, info, is_unversioned, ChangeData, ChangeOpt, Error, GitOpt, GroupName,
+    ManifestDiscriminant, Pkg, Result, WorkspaceConfig, INTERNAL_ERR,
 };
 
 use cargo_metadata::Metadata;
@@ -97,10 +97,11 @@ impl VersionOpt {
     pub fn do_versioning(
         &self,
         metadata: &Metadata,
-    ) -> Result<Option<(WorkspaceConfig, Vec<String>, Map<String, (Pkg, Version)>)>> {
-        let config: WorkspaceConfig = read_config(&metadata.workspace_metadata)?;
-
-        if self.git.no_git_commit && !self.git.no_git_tag {
+        config: &WorkspaceConfig,
+    ) -> Result<Option<(Option<Version>, Map<String, (Pkg, Version)>)>> {
+        if self.git.no_git_commit
+            && !(self.git.no_git_tag || (self.git.no_global_tag && self.git.no_individual_tags))
+        {
             info!("tagging the current commit", "");
         }
 
@@ -315,14 +316,10 @@ impl VersionOpt {
             }
         }
 
-        let tags = self.git.commit(
-            &metadata.workspace_root,
-            &new_version,
-            &new_versions,
-            &config,
-        )?;
+        self.git
+            .commit(&metadata.workspace_root, &new_version, &new_versions)?;
 
-        Ok(Some((config, tags, new_versions)))
+        Ok(Some((new_version, new_versions)))
     }
 
     fn get_new_versions(

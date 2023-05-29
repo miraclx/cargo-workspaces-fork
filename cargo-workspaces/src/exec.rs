@@ -20,7 +20,7 @@ impl Exec {
         let pkgs = metadata
             .packages
             .iter()
-            .map(|x| (x.clone(), x.version.to_string()))
+            .map(|x| (x, x.version.clone()))
             .collect::<Vec<_>>();
 
         let (names, visited) = dag(&pkgs);
