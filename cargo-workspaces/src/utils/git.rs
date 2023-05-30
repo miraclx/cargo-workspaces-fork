@@ -294,7 +294,7 @@ impl GitOpt {
                     .split_once("}")
                     .ok_or_else(|| Error::UnterminatedTagMsgScope(msg.clone()))?;
                 for (_, (p, version)) in new_versions.iter() {
-                    if p.private || self.tag_private {
+                    if !p.private || self.tag_private {
                         s.push_str(
                             &template
                                 .replace("%n", &p.name)
