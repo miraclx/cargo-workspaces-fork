@@ -109,7 +109,12 @@ pub struct GitOpt {
     pub git_remote: String,
 
     /// Do not perform any git operations (implies --no-git-commit and --no-git-tag)
-    #[clap(long, exclusive = true)]
+    #[clap(long, conflicts_with_all = &[
+        "no-git-commit", "allow-branch", "amend", "message",
+        "no-git-tag", "no-individual-tags", "no-global-tag",
+        "tag-private", "tag-prefix", "individual-tag-prefix",
+        "tag-msg", "individual-tag-msg", "no-git-push", "git-remote"
+    ])]
     pub no_git: bool,
 }
 
