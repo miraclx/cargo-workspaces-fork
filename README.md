@@ -1,6 +1,8 @@
 <!-- omit from toc -->
 # cargo-workspaces
 
+> Archived, see [miraclx/cargo-workspaces](https://github.com/miraclx/cargo-workspaces) for the live version.
+
 Fork of [pksunkara/cargo-workspaces](https://github.com/pksunkara/cargo-workspaces), maintained by [miraclx](https://github.com/miraclx).
 
 Differences from the upstream repo:
