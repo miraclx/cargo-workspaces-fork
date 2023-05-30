@@ -94,13 +94,17 @@ impl Publish {
         let mut tags = vec![];
         for p in &visited {
             let (pkg, version) = names.get(p).expect(INTERNAL_ERR);
-            let name = pkg.name.clone();
-            let mut args = vec!["publish"];
+            let version = version.to_string();
 
-            let name_ver = format!("{} v{}", name, version);
+            'publish: {
+                let name = pkg.name.clone();
+                let mut args = vec!["publish"];
 
-            let mut index =
-                if let Some(publish) = pkg.publish.as_deref().and_then(|x| x.get(0)).as_deref() {
+                let name_ver = format!("{} v{}", name, version);
+
+                let mut index = if let Some(publish) =
+                    pkg.publish.as_deref().and_then(|x| x.get(0)).as_deref()
+                {
                     let registry_url = cargo_config_get(
                         &metadata.workspace_root,
                         &format!("registries.{}.index", publish),
@@ -110,43 +114,42 @@ impl Publish {
                     Index::new_cargo_default()?
                 };
 
-            let version = version.to_string();
+                if is_published(&mut index, &name, &version)? {
+                    info!("already published", name_ver);
+                    break 'publish;
+                }
 
-            if is_published(&mut index, &name, &version)? {
-                info!("already published", name_ver);
-                continue;
+                if self.no_verify {
+                    args.push("--no-verify");
+                }
+
+                if self.allow_dirty {
+                    args.push("--allow-dirty");
+                }
+
+                if let Some(ref registry) = self.registry {
+                    args.push("--registry");
+                    args.push(registry);
+                }
+
+                if let Some(ref token) = self.token {
+                    args.push("--token");
+                    args.push(token);
+                }
+
+                args.push("--manifest-path");
+                args.push(p.as_str());
+
+                let (_, stderr) = cargo(&metadata.workspace_root, &args, &[])?;
+
+                if !stderr.contains("Uploading") || stderr.contains("error:") {
+                    return Err(Error::Publish(name));
+                }
+
+                check_index(&mut index, &name, &version)?;
+
+                info!("published", name_ver);
             }
-
-            if self.no_verify {
-                args.push("--no-verify");
-            }
-
-            if self.allow_dirty {
-                args.push("--allow-dirty");
-            }
-
-            if let Some(ref registry) = self.registry {
-                args.push("--registry");
-                args.push(registry);
-            }
-
-            if let Some(ref token) = self.token {
-                args.push("--token");
-                args.push(token);
-            }
-
-            args.push("--manifest-path");
-            args.push(p.as_str());
-
-            let (_, stderr) = cargo(&metadata.workspace_root, &args, &[])?;
-
-            if !stderr.contains("Uploading") || stderr.contains("error:") {
-                return Err(Error::Publish(name));
-            }
-
-            check_index(&mut index, &name, &version)?;
-
-            info!("published", name_ver);
 
             if let Some(tag) = self.version.git.individual_tag(
                 &metadata.workspace_root,
